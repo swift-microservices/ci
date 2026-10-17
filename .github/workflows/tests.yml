@@ -1,0 +1,74 @@
+# Copyright (c) 2026 Zaid Rahhawi
+# SPDX-License-Identifier: MIT
+# See LICENSE for license information.
+
+name: Tests
+
+# swiftlang/github-workflows' swift_package_test.yml for a package whose dependencies include private
+# GitHub repositories. That workflow takes no secrets, so it cannot fetch them
+# (swiftlang/github-workflows#59). This one runs the same Linux job, with the same input names, after
+# giving SwiftPM a token. A package without private dependencies calls swiftlang's workflow directly.
+on:
+  workflow_call:
+    inputs:
+      linux_swift_versions:
+        type: string
+        description: Swift versions to test with (JSON list).
+        default: '["6.3"]'
+      linux_os_versions:
+        type: string
+        description: Ubuntu versions to test on (JSON list).
+        default: '["noble"]'
+      linux_host_archs:
+        type: string
+        description: Host architectures, x86_64 or aarch64 (JSON list).
+        default: '["aarch64"]'
+      linux_pre_build_command:
+        type: string
+        description: Command to run before the build command.
+        default: ""
+      linux_build_command:
+        type: string
+        description: Command that builds and tests the package; swift_flags are appended.
+        default: swift test
+      swift_flags:
+        type: string
+        description: Flags appended to the build command.
+        default: ""
+    secrets:
+      PACKAGES_TOKEN:
+        description: Token with read access to the private repositories the package depends on.
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    name: Linux (${{ matrix.swift_version }} - ${{ matrix.os_version }} - ${{ matrix.arch }})
+    runs-on: ${{ matrix.arch == 'aarch64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        swift_version: ${{ fromJson(inputs.linux_swift_versions) }}
+        os_version: ${{ fromJson(inputs.linux_os_versions) }}
+        arch: ${{ fromJson(inputs.linux_host_archs) }}
+    container:
+      image: ${{ contains(matrix.swift_version, 'nightly') && 'swiftlang/swift' || 'swift' }}:${{ matrix.swift_version }}-${{ matrix.os_version }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Give SwiftPM the token
+        env:
+          PACKAGES_TOKEN: ${{ secrets.PACKAGES_TOKEN }}
+        run: |
+          printf 'machine github.com login x-access-token password %s\n' "$PACKAGES_TOKEN" > "$HOME/.netrc"
+          chmod 600 "$HOME/.netrc"
+      - name: Pre-build
+        if: ${{ inputs.linux_pre_build_command != '' }}
+        run: ${{ inputs.linux_pre_build_command }}
+      - name: Build and test
+        run: ${{ inputs.linux_build_command }} ${{ inputs.swift_flags }}
