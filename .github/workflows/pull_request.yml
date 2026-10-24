@@ -14,7 +14,7 @@ on:
 jobs:
   soundness:
     name: Soundness
-    uses: swiftlang/github-workflows/.github/workflows/soundness.yml@3137ed1a48293ae9f4312fce349ed6210251db89  # 0.0.16
+    uses: swiftlang/github-workflows/.github/workflows/soundness.yml@87329d126a6992483ba89aabefa1eaef1e5b0aad  # 0.0.17
     with:
       # This repository holds only workflows and Markdown: no Swift, shell, or Python files.
       api_breakage_check_enabled: false
