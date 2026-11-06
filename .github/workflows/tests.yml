@@ -81,13 +81,6 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
-    # Set only when Postgres runs, so tests that need it can tell when it doesn't.
-    env:
-      POSTGRES_HOST: ${{ inputs.postgres_image != '' && 'postgres' || '' }}
-      POSTGRES_PORT: ${{ inputs.postgres_image != '' && '5432' || '' }}
-      POSTGRES_USER: ${{ inputs.postgres_image != '' && 'postgres' || '' }}
-      POSTGRES_PASSWORD: ${{ inputs.postgres_image != '' && 'postgres' || '' }}
-      POSTGRES_DB: ${{ inputs.postgres_image != '' && 'postgres' || '' }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -103,6 +96,17 @@ jobs:
           fi
           printf 'machine github.com login x-access-token password %s\n' "$PACKAGES_TOKEN" > "$HOME/.netrc"
           chmod 600 "$HOME/.netrc"
+      - name: Point the tests at Postgres
+        # Only when Postgres runs: a test that checks whether POSTGRES_HOST is set then skips without it.
+        if: ${{ inputs.postgres_image != '' }}
+        run: |
+          {
+            echo 'POSTGRES_HOST=postgres'
+            echo 'POSTGRES_PORT=5432'
+            echo 'POSTGRES_USER=postgres'
+            echo 'POSTGRES_PASSWORD=postgres'
+            echo 'POSTGRES_DB=postgres'
+          } >> "$GITHUB_ENV"
       - name: Pre-build
         if: ${{ inputs.linux_pre_build_command != '' }}
         run: ${{ inputs.linux_pre_build_command }}
