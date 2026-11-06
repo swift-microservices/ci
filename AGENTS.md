@@ -5,12 +5,27 @@ This repository holds reusable GitHub Actions workflows for Swift packages and s
 way. That skill's `delivery.md` reference owns every general CI/CD rule; this file records what is
 specific to these workflows. Read it before adding or changing one.
 
+## Pipelines and building blocks
+
+- Every repository calls one pipeline for its kind: `library.yml` (`kind: public` or `system`) or
+  `service.yml`, plus `pull_request_label.yml` and `release.yml` for a library, and `deploy.yml`
+  and `cleanup-images.yml` for a service. A change every repository needs (a toolchain, a flag, a
+  check, a pin) is made here once and reaches them through the pin Dependabot moves.
+- A pipeline holds the standard: which jobs run on which event, the toolchains per kind, and the
+  strict flags. Its inputs cover only what differs between repositories (products, Postgres, docs
+  targets, application ids); a repository that needs more calls the building blocks directly.
+- A pipeline calls this repository's workflows with `$/` (`uses: $/.github/workflows/tests.yml`), so
+  they run at the pipeline's own commit. actionlint 1.7.12 doesn't know `$/`, so this repository's
+  actionlint step ignores that one message.
+- Changing a pipeline's behavior, such as its toolchain or a check, is a minor release: each
+  repository adopts it through its own Dependabot pull request, whose CI shows what it breaks.
+  Removing or renaming an input is a major release.
+
 ## Reuse first
 
-- [swiftlang/github-workflows](https://github.com/swiftlang/github-workflows) is the default.
-  Services and libraries call its `soundness.yml` and `swift_package_test.yml` directly; this
-  repository never wraps them, re-exports them, or copies their inputs into a workflow that only
-  forwards them.
+- [swiftlang/github-workflows](https://github.com/swiftlang/github-workflows) does every job it can:
+  the pipelines call its `soundness.yml` and `swift_package_test.yml`, and this repository never
+  copies them.
 - A workflow belongs here only when swiftlang has none for the job, or has one that cannot do it:
   - `tests.yml` is `swift_package_test.yml`'s Linux job for a package with private dependencies
     or Postgres tests. swiftlang's workflow takes no secrets, so it cannot fetch private
