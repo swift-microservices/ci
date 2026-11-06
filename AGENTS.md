@@ -58,7 +58,7 @@ specific to these workflows. Read it before adding or changing one.
 - **Postgres.** With `postgres_image` set, `tests.yml` starts it as the `postgres` service, with
   user, password, and database `postgres`, and sets `POSTGRES_HOST`, `POSTGRES_PORT`,
   `POSTGRES_USER`, `POSTGRES_PASSWORD`, and `POSTGRES_DB` for the tests. Without it, it starts
-  nothing and leaves them empty.
+  nothing and leaves them unset, so a test that checks for `POSTGRES_HOST` skips.
 - **Foundation linking.** A library product, and an executable product `executable_products`
   names, links neither `libFoundation`, `libFoundationInternationalization`, nor `lib_FoundationICU`,
   unless `excluded_products` names the library product. Builds are dynamic, since `ldd` sees
