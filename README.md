@@ -20,14 +20,20 @@ what it lacks.
 ## Delivery
 
 ```
-pull request ──► soundness + tests + build image (validate, no push)
-push to main ──► soundness + tests ──► build image (push :<commit-sha>) ──► deploy staging
+pull request ──► soundness + tests + build image (validate, no push); a new push cancels the run
+push to main ──► tests ──► build image (push :<commit-sha>) ──► deploy staging
 Deploy production (manual) ──► the latest main commit, or a chosen one, if staging ran it
 weekly ──► cleanup-images
 ```
 
-`main` is the only long-lived branch. Production runs only a commit whose push to `main` deployed
-it to staging. Rolling back means deploying an older commit; nothing is rebuilt.
+`main` is the only long-lived branch, and it changes only through pull requests that passed their
+checks, so Main skips soundness and reruns the tests on the merged commit. Production runs only a
+commit whose push to `main` deployed it to staging. Rolling back means deploying an older commit;
+nothing is rebuilt.
+
+The tests' strict flags gate the pull request; the image build passes none of them, so a warning a
+newer toolchain adds never blocks a release or a hotfix. `-require-explicit-sendable` checks `public`
+declarations, so libraries pass it and services, built on `package` access, don't.
 
 ## Callers
 
@@ -45,13 +51,6 @@ on:
     branches: [main]
 
 jobs:
-  soundness:
-    name: Soundness
-    uses: swiftlang/github-workflows/.github/workflows/soundness.yml@<commit>  # <release>
-    with:
-      api_breakage_check_enabled: false
-      docs_check_enabled: false
-
   tests:
     name: Tests
     # Without private dependencies or a Postgres, call swiftlang/github-workflows'
@@ -60,16 +59,13 @@ jobs:
     with:
       linux_build_command: swift test --disable-automatic-resolution
       postgres_image: postgres:18-alpine
-      swift_flags: >-
-        -Xswiftc -warnings-as-errors
-        --explicit-target-dependency-import-check error
-        -Xswiftc -require-explicit-sendable
+      swift_flags: -Xswiftc -warnings-as-errors --explicit-target-dependency-import-check error
     secrets:
       PACKAGES_TOKEN: ${{ secrets.PACKAGES_TOKEN }}
 
   publish:
     name: Publish image
-    needs: [soundness, tests]
+    needs: [tests]
     permissions:
       contents: read
       packages: write
@@ -98,8 +94,9 @@ jobs:
       DOKPLOY_TOKEN: ${{ secrets.DOKPLOY_TOKEN }}
 ```
 
-The pull request workflow runs the same `soundness` and `tests` jobs and `build-image.yml` without
-`publish`.
+The pull request workflow runs swiftlang's `soundness.yml` (with `api_breakage_check_enabled` and
+`docs_check_enabled` off), the same `tests` job, and `build-image.yml` without `publish`, in a
+`concurrency` group of the pull request's number with `cancel-in-progress: true`.
 
 ```yaml
 # .github/workflows/deploy.yml
