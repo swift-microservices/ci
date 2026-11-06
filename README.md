@@ -35,12 +35,6 @@ adapter; another platform adds `deploy_<platform>.yml` with the same inputs wher
 (`environment`, `commit`, `image_repository`) and the same job name,
 `Deploy <environment>`, which the production gate looks for.
 
-### Deprecated
-
-`build-image.yml`, `deploy.yml` and `cleanup-images.yml` keep 0.1.0's names and inputs and forward to
-`build_image.yml`, `deploy_dokploy.yml` and `cleanup_images.yml`, so a repository still on 0.1.0's
-inputs keeps working when its pin moves. They go in the next major release.
-
 ## What the pipelines hold every repository to
 
 - `main` changes only through pull requests that passed their checks, so a push to `main` skips
