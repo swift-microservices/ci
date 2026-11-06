@@ -8,9 +8,10 @@ name: Library
 # main or a scheduled run: Tests and Foundation linking, since the merged commit may differ from what
 # the pull request tested and a library resolves its dependencies' newest releases on every run.
 #
-# Tests run on the package's swift-tools-version, Ubuntu noble and linux/arm64 unless the caller
-# widens the platforms. Private dependencies are those a passed PACKAGES_TOKEN reads; tests that need
-# them, or a Postgres, run in tests.yml, since swiftlang's workflow can give neither.
+# Soundness and Foundation linking run on the package's swift-tools-version, and Tests on it, Ubuntu
+# noble and linux/arm64 unless the caller widens the platforms. Private dependencies are those a
+# passed PACKAGES_TOKEN reads; tests that need them, or a Postgres, run in tests.yml, since
+# swiftlang's workflow can give neither.
 on:
   workflow_call:
     inputs:
@@ -48,8 +49,8 @@ on:
         default: ""
       docs_check_container_image:
         type: string
-        description: Image the documentation check builds in.
-        default: swift:6.3-noble
+        description: Image the documentation check builds in; empty means the package's swift-tools-version.
+        default: ""
       foundation_linking_check_excluded_products:
         type: string
         description: >-
@@ -95,14 +96,17 @@ jobs:
 
   soundness:
     name: Soundness
+    needs: [setup]
     if: ${{ github.event_name == 'pull_request' }}
     uses: swiftlang/github-workflows/.github/workflows/soundness.yml@87329d126a6992483ba89aabefa1eaef1e5b0aad  # 0.0.17
     with:
       api_breakage_check_enabled: ${{ inputs.api_breakage_check_enabled }}
+      api_breakage_check_container_image: swift:${{ needs.setup.outputs.swift_version }}-noble
       license_header_check_enabled: ${{ inputs.license_header_check_enabled }}
       docs_check_enabled: ${{ inputs.docs_check_targets != '' }}
       docs_check_targets: ${{ inputs.docs_check_targets }}
-      docs_check_container_image: ${{ inputs.docs_check_container_image }}
+      docs_check_container_image: ${{ inputs.docs_check_container_image || format('swift:{0}-noble', needs.setup.outputs.swift_version) }}
+      format_check_container_image: swift:${{ needs.setup.outputs.swift_version }}-noble
 
   tests:
     name: Tests

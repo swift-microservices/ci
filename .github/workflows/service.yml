@@ -6,8 +6,9 @@ name: Service
 
 # A Swift service's whole CI. On a pull request: Soundness, Tests, Foundation linking and a validated
 # image. On a push to main: Tests and Foundation linking, then the image published once as
-# :<commit-sha>. Any other run validates the image without publishing it. Tests and Foundation
-# linking run on the package's swift-tools-version, the toolchain its Containerfile builds with.
+# :<commit-sha>. Any other run validates the image without publishing it. Soundness, Tests and
+# Foundation linking run on the package's swift-tools-version, the toolchain its Containerfile builds
+# with.
 #
 # Deployment isn't part of it: the service's CI workflow calls a deployment workflow, such as
 # deploy_dokploy.yml, after this one. The caller grants contents: read and packages: write, since a
@@ -75,12 +76,14 @@ jobs:
 
   soundness:
     name: Soundness
+    needs: [setup]
     if: ${{ github.event_name == 'pull_request' }}
     uses: swiftlang/github-workflows/.github/workflows/soundness.yml@87329d126a6992483ba89aabefa1eaef1e5b0aad  # 0.0.17
     with:
       api_breakage_check_enabled: false
       license_header_check_enabled: ${{ inputs.license_header_check_enabled }}
       docs_check_enabled: false
+      format_check_container_image: swift:${{ needs.setup.outputs.swift_version }}-noble
 
   tests:
     name: Tests
