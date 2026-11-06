@@ -13,7 +13,7 @@ moves.
 | --- | --- | --- |
 | `library.yml` | `ci.yml` | Pull request: Soundness, Tests, Foundation linking. Push or schedule: Tests, Foundation linking |
 | `service.yml` | `ci.yml` | Pull request: Soundness, Tests, Foundation linking, Build image. Push to `main`: Tests and Foundation linking, then Publish image as `:<commit-sha>` |
-| `deploy_dokploy.yml` | `ci.yml` (staging) and `deploy.yml` (production) | A commit's image on Dokploy; production only for a commit staging ran. With `check_only`, only checks the token reads every application |
+| `deploy_dokploy.yml` | `ci.yml` (staging) and `deploy.yml` (production) | A commit's image on Dokploy; production only for a commit staging ran |
 | `cleanup_images.yml` | `cleanup_images.yml` | Keeps the newest versions of a container package (30 by default) |
 | `pull_request_label.yml` | `pull_request_label.yml` | Exactly one semver label on a library's pull request |
 | `release.yml` | `release.yml` | A library's next release, from the merged pull requests' labels |
@@ -32,7 +32,7 @@ repository with an unusual need can call too:
 `service.yml` ends at a published image; deploying it is a separate workflow the service's CI
 workflow calls, so the pipeline doesn't depend on a platform. `deploy_dokploy.yml` is the one
 adapter; another platform adds `deploy_<platform>.yml` with the same inputs where they apply
-(`environment`, `commit`, `image_repository`, `check_only`) and the same job name,
+(`environment`, `commit`, `image_repository`) and the same job name,
 `Deploy <environment>`, which the production gate looks for.
 
 ### Deprecated
@@ -138,7 +138,7 @@ A library others build with tests more platforms:
       enable_linux_static_sdk_build: true
 ```
 
-A service; on a pull request its staging job only checks the deployment:
+A service; its staging job deploys each push to `main`:
 
 ```yaml
 # .github/workflows/ci.yml
@@ -173,6 +173,7 @@ jobs:
   staging:
     name: Staging
     needs: [ci]
+    if: github.event_name == 'push'
     permissions:
       contents: read
       actions: read
@@ -182,7 +183,6 @@ jobs:
       environment: staging
       image_repository: ghcr.io/<owner>/<repository>
       application_ids: '["<staging serve id>", "<staging worker id>"]'
-      check_only: ${{ github.event_name == 'pull_request' }}
     secrets:
       DOKPLOY_URL: ${{ secrets.DOKPLOY_URL }}
       DOKPLOY_TOKEN: ${{ secrets.DOKPLOY_TOKEN }}
@@ -249,10 +249,10 @@ To put an older commit back on staging, re-run the Staging job of that commit's 
 
 ## Requirements
 
-- **Secrets**, as repository secrets of each service, and as Dependabot secrets too, since a
-  Dependabot pull request reads only those:
+- **Secrets**, as repository secrets of each service:
   - `PACKAGES_TOKEN`, only with private dependencies: a fine-grained token whose resource owner is
-    the organization, limited to the private package repositories, with Contents read-only.
+    the organization, limited to the private package repositories, with Contents read-only. It's a
+    Dependabot secret too, since a Dependabot pull request reads only those.
   - `DOKPLOY_URL` and `DOKPLOY_TOKEN`, a Dokploy API key that can read, update, and deploy the
     applications.
 - **Containerfile**, only with private dependencies: resolve with the secret mounted, so the token

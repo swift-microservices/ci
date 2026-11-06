@@ -65,7 +65,7 @@ specific to these workflows. Read it before adding or changing one.
   manual workflow) both run `deploy_dokploy.yml`. It resolves the commit to `:<commit-sha>@sha256:…`, so Dokploy
   shows the commit and Docker pulls by digest. Production requires a successful job whose name
   ends in `Deploy staging` in a push run of that commit, which is `deploy_dokploy.yml`'s own job
-  name for staging; on a pull request the same job runs as `Check staging` with `check_only`. Deploying an older commit is the rollback; nothing is rebuilt.
+  name for staging. Deploying an older commit is the rollback; nothing is rebuilt.
 - **Dokploy.** Applications use the Docker provider with registry credentials and auto-deploy off.
   `deploy_dokploy.yml` checks that every ID in `application_ids` names an application before changing any,
   then, one at a time in the listed order, sets the image, requests a deployment titled with the
