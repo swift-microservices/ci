@@ -10,7 +10,7 @@
 # - GH_TOKEN: reads the repository's commits and runs.
 # - COMMIT: the commit to deploy.
 # - TARGET_ENVIRONMENT: staging or production.
-# - IMAGE_REPOSITORY: where build-image.yml published the image.
+# - IMAGE_REPOSITORY: where build_image.yml published the image.
 
 set -euo pipefail
 
