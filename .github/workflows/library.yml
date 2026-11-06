@@ -46,6 +46,10 @@ on:
         type: string
         description: Targets whose documentation Soundness builds (space-separated); empty builds none.
         default: ""
+      docs_check_container_image:
+        type: string
+        description: Image the documentation check builds in.
+        default: swift:6.3-noble
       foundation_linking_check_excluded_products:
         type: string
         description: >-
@@ -98,6 +102,7 @@ jobs:
       license_header_check_enabled: ${{ inputs.license_header_check_enabled }}
       docs_check_enabled: ${{ inputs.docs_check_targets != '' }}
       docs_check_targets: ${{ inputs.docs_check_targets }}
+      docs_check_container_image: ${{ inputs.docs_check_container_image }}
 
   tests:
     name: Tests
