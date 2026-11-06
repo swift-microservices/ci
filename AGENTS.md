@@ -7,7 +7,8 @@ specific to these workflows. Read it before adding or changing one.
 
 ## Pipelines and building blocks
 
-- Every repository calls one pipeline: `library.yml` or `service.yml`, plus `pull_request_label.yml` and `release.yml` for a library, and `deploy.yml`
+- Repositories call only this repository's workflows, never swiftlang's or Apple's: this
+  repository routes to them. Every repository calls one pipeline: `library.yml` or `service.yml`, plus `pull_request_label.yml` and `release.yml` for a library, and `deploy.yml`
   and `cleanup-images.yml` for a service. A change every repository needs (a toolchain, a flag, a
   check, a pin) is made here once and reaches them through the pin Dependabot moves.
 - A pipeline holds the standard: which jobs run on which event, the default platforms, and the
@@ -87,12 +88,15 @@ specific to these workflows. Read it before adding or changing one.
 
 - Pin every action and reusable workflow to its latest release's full commit with the release in
   a comment (`# v7.0.1`); `# main` only when the upstream publishes no releases.
-- Logic stays inline in `run:` steps: a called workflow runs in the caller's checkout, so a script
-  here would need a second checkout of this repository, and inline steps show callers exactly
-  what ran.
-- Steps run under GitHub's `bash -e -o pipefail`. Quote expansions, pass inputs through `env:`
-  rather than interpolating them into scripts (a command input such as `linux_build_command` is
-  the exception: it runs as given, as in swiftlang), and report failures with `::error::`.
+- Shell lives in `.github/scripts/*.sh`, never in a `run:` block; a step runs one script with
+  `bash "$SCRIPTS/<script>.sh"`. A called workflow runs in the caller's checkout, so it finds its
+  scripts through `uses: $/.github/actions/scripts`, which returns this repository's
+  `.github/scripts` at the workflow's own commit. A command input such as `linux_build_command`
+  is the one `run:` that isn't a script: it runs as given, as in swiftlang.
+- A script starts with `#!/bin/bash`, the `##` license header and `set -euo pipefail`, and lists
+  the environment it reads. Inputs reach it through `env:`, never interpolated into a command.
+  It quotes expansions, reports failures with `::error::`, and passes shellcheck, which Soundness
+  runs.
 - Workflow file names, inputs, secrets, and the `Deploy <environment>` job name are public API.
   Removing or renaming one is a major change.
 - Files carry the compact MIT header from `.license_header_template`.

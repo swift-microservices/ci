@@ -116,6 +116,7 @@ jobs:
     with:
       enable_linux_checks: false
       enable_linux_static_sdk_build: true
+      linux_os_versions: ${{ inputs.linux_os_versions }}
       enable_windows_checks: false
       swift_flags: -Xswiftc -warnings-as-errors --explicit-target-dependency-import-check error -Xswiftc -require-explicit-sendable
       swift_nightly_flags: --explicit-target-dependency-import-check error -Xswiftc -require-explicit-sendable

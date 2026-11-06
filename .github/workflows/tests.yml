@@ -86,27 +86,20 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
+      - name: Find this repository's scripts
+        id: scripts
+        uses: $/.github/actions/scripts
       - name: Give SwiftPM the token
         env:
           PACKAGES_TOKEN: ${{ secrets.PACKAGES_TOKEN }}
-        run: |
-          if [ -z "$PACKAGES_TOKEN" ]; then
-            echo 'No PACKAGES_TOKEN: the package has only public dependencies'
-            exit 0
-          fi
-          printf 'machine github.com login x-access-token password %s\n' "$PACKAGES_TOKEN" > "$HOME/.netrc"
-          chmod 600 "$HOME/.netrc"
+          SCRIPTS: ${{ steps.scripts.outputs.directory }}
+        run: bash "$SCRIPTS/configure-netrc.sh"
       - name: Point the tests at Postgres
         # Only when Postgres runs: a test that checks whether POSTGRES_HOST is set then skips without it.
         if: ${{ inputs.postgres_image != '' }}
-        run: |
-          {
-            echo 'POSTGRES_HOST=postgres'
-            echo 'POSTGRES_PORT=5432'
-            echo 'POSTGRES_USER=postgres'
-            echo 'POSTGRES_PASSWORD=postgres'
-            echo 'POSTGRES_DB=postgres'
-          } >> "$GITHUB_ENV"
+        env:
+          SCRIPTS: ${{ steps.scripts.outputs.directory }}
+        run: bash "$SCRIPTS/point-tests-at-postgres.sh"
       - name: Pre-build
         if: ${{ inputs.linux_pre_build_command != '' }}
         run: ${{ inputs.linux_pre_build_command }}

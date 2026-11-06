@@ -25,9 +25,11 @@ also callable on their own:
 | `foundation-linking.yml` | Builds an empty executable that links every library product, and each executable product `executable_products` names, and fails when one links Foundation's full library or ICU; `excluded_products` names the library products allowed to |
 | `build-image.yml` | Builds the `Containerfile` for linux/arm64 and checks that it runs as an unprivileged user and links every runtime library; with `publish: true` on `main`, pushes it once as `:<commit-sha>` |
 
-Everything [swiftlang/github-workflows](https://github.com/swiftlang/github-workflows) does is called
-from there: `soundness.yml`, and `swift_package_test.yml` for a library that needs neither private
-dependencies nor a Postgres.
+Repositories call only these workflows. They route to
+[swiftlang/github-workflows](https://github.com/swiftlang/github-workflows) for what it does
+(`soundness.yml`, and `swift_package_test.yml` for a library that needs neither private dependencies
+nor a Postgres) and to Apple's label check and release workflow, so a repository's pins never name
+them. The workflows' shell lives in `.github/scripts`.
 
 ## What the pipelines hold every repository to
 

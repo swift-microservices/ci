@@ -16,11 +16,10 @@ jobs:
     name: Soundness
     uses: swiftlang/github-workflows/.github/workflows/soundness.yml@87329d126a6992483ba89aabefa1eaef1e5b0aad  # 0.0.17
     with:
-      # This repository holds only workflows and Markdown: no Swift, shell, or Python files.
+      # This repository holds workflows, their shell scripts and Markdown: no Swift or Python.
       api_breakage_check_enabled: false
       docs_check_enabled: false
       format_check_enabled: false
-      shell_check_enabled: false
       python_lint_check_enabled: false
 
   actionlint:
@@ -32,17 +31,5 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
-      - name: Install verified actionlint
-        env:
-          ACTIONLINT_VERSION: 1.7.12
-          ACTIONLINT_SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
-        run: |
-          curl --fail --silent --show-error --location \
-            "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz" \
-            --output "$RUNNER_TEMP/actionlint.tar.gz"
-          echo "$ACTIONLINT_SHA256  $RUNNER_TEMP/actionlint.tar.gz" | sha256sum --check
-          tar -xzf "$RUNNER_TEMP/actionlint.tar.gz" -C "$RUNNER_TEMP" actionlint
       - name: Validate workflows and their shell steps
-        # actionlint 1.7.12 doesn't know the $/ self-reference the pipelines use to call this
-        # repository's workflows at their own commit.
-        run: '"$RUNNER_TEMP/actionlint" -color -ignore "reusable workflow call \"\\$/"'
+        run: bash .github/scripts/run-actionlint.sh
