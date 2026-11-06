@@ -43,4 +43,6 @@ jobs:
           echo "$ACTIONLINT_SHA256  $RUNNER_TEMP/actionlint.tar.gz" | sha256sum --check
           tar -xzf "$RUNNER_TEMP/actionlint.tar.gz" -C "$RUNNER_TEMP" actionlint
       - name: Validate workflows and their shell steps
-        run: '"$RUNNER_TEMP/actionlint" -color'
+        # actionlint 1.7.12 doesn't know the $/ self-reference the pipelines use to call this
+        # repository's workflows at their own commit.
+        run: '"$RUNNER_TEMP/actionlint" -color -ignore "reusable workflow call \"\\$/"'

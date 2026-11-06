@@ -1,0 +1,130 @@
+# Copyright (c) 2026 Zaid Rahhawi
+# SPDX-License-Identifier: MIT
+# See LICENSE for license information.
+
+name: Library
+
+# A Swift library's whole CI. On a pull request: Soundness, Tests and Foundation linking. On a push to
+# main or a scheduled run: Tests and Foundation linking, since the merged commit may differ from what
+# the pull request tested and a library resolves its dependencies' newest releases on every run.
+#
+# kind decides the toolchains. A public library tests every Swift version swiftlang supports from its
+# tools version, nightlies and the static Linux SDK; a system library, the one toolchain its services
+# build and run with, on linux/arm64.
+on:
+  workflow_call:
+    inputs:
+      kind:
+        type: string
+        description: public or system.
+        required: true
+      swift_version:
+        type: string
+        description: The toolchain a system library tests on and every Foundation-linking build uses.
+        default: "6.3"
+      linux_swift_versions:
+        type: string
+        description: >-
+          Swift versions to test on (JSON list) when Tests runs swift-microservices/ci's tests.yml, for
+          Postgres or private dependencies; empty means swift_version.
+        default: ""
+      linux_exclude_swift_versions:
+        type: string
+        description: A public library's swiftlang versions below its tools version (JSON list of objects).
+        default: '[{"swift_version": ""}]'
+      build_command:
+        type: string
+        description: What Tests runs; a package without tests uses swift build -c release.
+        default: swift test -c release
+      api_breakage_check_enabled:
+        type: boolean
+        description: Fail a pull request that breaks the public API; true from 1.0.
+        default: false
+      docs_check_targets:
+        type: string
+        description: Targets whose documentation Soundness builds (space-separated); empty builds none.
+        default: ""
+      foundation_linking:
+        type: boolean
+        description: Check that the library products link no full Foundation; false only while every product depends on a package that still does.
+        default: true
+      excluded_products:
+        type: string
+        description: Library products allowed to link Foundation, over a dependency that still does.
+        default: ""
+      postgres_image:
+        type: string
+        description: Postgres image started beside the tests, such as postgres:18-alpine; empty starts none.
+        default: ""
+      private_dependencies:
+        type: boolean
+        description: The package depends on private repositories, read with PACKAGES_TOKEN.
+        default: false
+    secrets:
+      PACKAGES_TOKEN:
+        description: Token with read access to the private repositories the package depends on, if any.
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  soundness:
+    name: Soundness
+    if: ${{ github.event_name == 'pull_request' }}
+    uses: swiftlang/github-workflows/.github/workflows/soundness.yml@87329d126a6992483ba89aabefa1eaef1e5b0aad  # 0.0.17
+    with:
+      api_breakage_check_enabled: ${{ inputs.api_breakage_check_enabled }}
+      docs_check_enabled: ${{ inputs.docs_check_targets != '' }}
+      docs_check_targets: ${{ inputs.docs_check_targets }}
+
+  public-tests:
+    name: Tests
+    if: ${{ inputs.kind == 'public' && inputs.postgres_image == '' && !inputs.private_dependencies }}
+    uses: swiftlang/github-workflows/.github/workflows/swift_package_test.yml@87329d126a6992483ba89aabefa1eaef1e5b0aad  # 0.0.17
+    with:
+      linux_exclude_swift_versions: ${{ inputs.linux_exclude_swift_versions }}
+      linux_os_versions: '["noble"]'
+      linux_build_command: ${{ inputs.build_command }}
+      swift_flags: -Xswiftc -warnings-as-errors --explicit-target-dependency-import-check error -Xswiftc -require-explicit-sendable
+      swift_nightly_flags: --explicit-target-dependency-import-check error -Xswiftc -require-explicit-sendable
+      enable_linux_static_sdk_build: true
+      enable_windows_checks: false
+
+  system-tests:
+    name: Tests
+    if: ${{ inputs.kind == 'system' && inputs.postgres_image == '' && !inputs.private_dependencies }}
+    uses: swiftlang/github-workflows/.github/workflows/swift_package_test.yml@87329d126a6992483ba89aabefa1eaef1e5b0aad  # 0.0.17
+    with:
+      linux_swift_versions: ${{ format('["{0}"]', inputs.swift_version) }}
+      linux_os_versions: '["noble"]'
+      linux_host_archs: '["aarch64"]'
+      linux_build_command: ${{ inputs.build_command }}
+      swift_flags: -Xswiftc -warnings-as-errors --explicit-target-dependency-import-check error -Xswiftc -require-explicit-sendable
+      enable_linux_static_sdk_build: false
+      enable_windows_checks: false
+
+  package-tests:
+    name: Tests
+    if: ${{ inputs.postgres_image != '' || inputs.private_dependencies }}
+    uses: $/.github/workflows/tests.yml
+    with:
+      linux_swift_versions: ${{ inputs.linux_swift_versions || format('["{0}"]', inputs.swift_version) }}
+      linux_os_versions: '["noble"]'
+      linux_host_archs: '["aarch64"]'
+      linux_build_command: ${{ inputs.build_command }}
+      swift_flags: -Xswiftc -warnings-as-errors --explicit-target-dependency-import-check error -Xswiftc -require-explicit-sendable
+      swift_nightly_flags: --explicit-target-dependency-import-check error -Xswiftc -require-explicit-sendable
+      postgres_image: ${{ inputs.postgres_image }}
+    secrets:
+      PACKAGES_TOKEN: ${{ secrets.PACKAGES_TOKEN }}
+
+  foundation-linking:
+    name: Foundation linking
+    if: ${{ inputs.foundation_linking }}
+    uses: $/.github/workflows/foundation-linking.yml
+    with:
+      container_image: swift:${{ inputs.swift_version }}-noble
+      excluded_products: ${{ inputs.excluded_products }}
+    secrets:
+      PACKAGES_TOKEN: ${{ secrets.PACKAGES_TOKEN }}

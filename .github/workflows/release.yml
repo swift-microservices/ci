@@ -4,8 +4,10 @@
 
 name: Release
 
+# This repository's own release, and the one a library calls from its release.yml.
 on:
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: write
