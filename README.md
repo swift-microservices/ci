@@ -12,7 +12,7 @@ what it lacks.
 | Workflow | Does |
 | --- | --- |
 | `tests.yml` | swiftlang's `swift_package_test.yml` Linux job, with the same inputs, for a package that needs private dependencies, which SwiftPM fetches with `PACKAGES_TOKEN`, or a Postgres beside its tests, started from `postgres_image` |
-| `foundation-linking.yml` | Builds an empty executable that links every library product and fails when it links Foundation's full library or ICU; `excluded_products` names the products allowed to |
+| `foundation-linking.yml` | Builds an empty executable that links every library product, and each executable product `executable_products` names, and fails when one links Foundation's full library or ICU; `excluded_products` names the library products allowed to |
 | `build-image.yml` | Builds the `Containerfile` for linux/arm64 and checks that it runs as an unprivileged user and links every runtime library; with `publish: true` on `main`, pushes it once as `:<commit-sha>` |
 | `deploy.yml` | Resolves a commit to `:<commit-sha>@sha256:…`, refuses production for a commit staging never ran, then deploys it to each Dokploy application in order and waits for each to finish |
 | `cleanup-images.yml` | Keeps the newest versions of a container package (30 by default) |
@@ -167,6 +167,9 @@ tests:
     with:
       excluded_products: <Org>Testing
 ```
+
+A service adds the same job, with `executable_products: <product>` and `PACKAGES_TOKEN`, once every
+package it depends on is Foundation-free.
 
 ## Requirements
 

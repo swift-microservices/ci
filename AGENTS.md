@@ -59,8 +59,10 @@ specific to these workflows. Read it before adding or changing one.
   user, password, and database `postgres`, and sets `POSTGRES_HOST`, `POSTGRES_PORT`,
   `POSTGRES_USER`, `POSTGRES_PASSWORD`, and `POSTGRES_DB` for the tests. Without it, it starts
   nothing and leaves them empty.
-- **Foundation linking.** A library product links neither `libFoundation`,
-  `libFoundationInternationalization`, nor `lib_FoundationICU`, unless `excluded_products` names it.
+- **Foundation linking.** A library product, and an executable product `executable_products`
+  names, links neither `libFoundation`, `libFoundationInternationalization`, nor `lib_FoundationICU`,
+  unless `excluded_products` names the library product. Builds are dynamic, since `ldd` sees
+  nothing in a static binary, and use the committed `Package.resolved` when there is one.
 - **One deployment at a time** per caller repository and environment (`deploy-<environment>`),
   never cancelled midway.
 
