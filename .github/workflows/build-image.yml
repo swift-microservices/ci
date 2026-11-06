@@ -42,6 +42,9 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
+      - name: Find this repository's scripts
+        id: scripts
+        uses: $/.github/actions/scripts
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069  # v4.4.1
       - name: Build release image
@@ -65,24 +68,8 @@ jobs:
         env:
           CI_IMAGE: service-ci:${{ github.sha }}
           SERVICE_PRODUCT: ${{ inputs.service_product }}
-        run: |
-          image_user=$(docker image inspect --format '{{.Config.User}}' "$CI_IMAGE")
-          case "$image_user" in
-            ""|root|root:*|0|0:*) echo '::error::The image must run as an unprivileged user'; exit 1 ;;
-          esac
-
-          if linkage=$(docker run --rm --entrypoint ldd "$CI_IMAGE" "/app/$SERVICE_PRODUCT" 2>&1); then
-            printf '%s\n' "$linkage"
-            if [[ $linkage == *'not found'* ]]; then
-              echo '::error::A runtime library is missing from the image'
-              exit 1
-            fi
-          elif [[ $linkage == *'not a dynamic executable'* || $linkage == *'statically linked'* ]]; then
-            printf '%s\n' "$linkage"
-          else
-            printf '%s\n' "$linkage" >&2
-            exit 1
-          fi
+          SCRIPTS: ${{ steps.scripts.outputs.directory }}
+        run: bash "$SCRIPTS/check-image.sh"
       - name: Log in to GitHub Container Registry
         if: ${{ inputs.publish }}
         uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6  # v4.7.0
@@ -95,16 +82,5 @@ jobs:
         env:
           CI_IMAGE: service-ci:${{ github.sha }}
           IMAGE_REPOSITORY: ${{ inputs.image_repository }}
-        run: |
-          if [ "$GITHUB_REF" != refs/heads/main ]; then
-            echo "::error::Images are published only from main, not $GITHUB_REF"
-            exit 1
-          fi
-          commit_tag="$IMAGE_REPOSITORY:$GITHUB_SHA"
-          # A commit's tag is written once, so a re-run never replaces the image staging ran.
-          if docker buildx imagetools inspect "$commit_tag" > /dev/null 2>&1; then
-            echo "$commit_tag is already published"
-            exit 0
-          fi
-          docker tag "$CI_IMAGE" "$commit_tag"
-          docker push "$commit_tag"
+          SCRIPTS: ${{ steps.scripts.outputs.directory }}
+        run: bash "$SCRIPTS/publish-image.sh"

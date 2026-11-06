@@ -5,12 +5,30 @@ This repository holds reusable GitHub Actions workflows for Swift packages and s
 way. That skill's `delivery.md` reference owns every general CI/CD rule; this file records what is
 specific to these workflows. Read it before adding or changing one.
 
+## Pipelines and building blocks
+
+- Repositories call only this repository's workflows, never swiftlang's or Apple's: this
+  repository routes to them. Every repository calls one pipeline: `library.yml` or `service.yml`, plus `pull_request_label.yml` and `release.yml` for a library, and `deploy.yml`
+  and `cleanup-images.yml` for a service. A change every repository needs (a toolchain, a flag, a
+  check, a pin) is made here once and reaches them through the pin Dependabot moves.
+- A pipeline holds the standard: which jobs run on which event, the default platforms, and the
+  strict flags. Its inputs cover only what differs between repositories (platforms, products,
+  Postgres, docs targets, application ids); a repository that needs more calls the building blocks
+  directly.
+- Foundation linking always runs, so every repository has the same required checks. A product that
+  still links Foundation through a dependency is named in `excluded_products` until it doesn't.
+- A pipeline calls this repository's workflows with `$/` (`uses: $/.github/workflows/tests.yml`), so
+  they run at the pipeline's own commit. actionlint 1.7.12 doesn't know `$/`, so this repository's
+  actionlint step ignores that one message.
+- Changing a pipeline's behavior, such as its toolchain or a check, is a minor release: each
+  repository adopts it through its own Dependabot pull request, whose CI shows what it breaks.
+  Removing or renaming an input is a major release.
+
 ## Reuse first
 
-- [swiftlang/github-workflows](https://github.com/swiftlang/github-workflows) is the default.
-  Services and libraries call its `soundness.yml` and `swift_package_test.yml` directly; this
-  repository never wraps them, re-exports them, or copies their inputs into a workflow that only
-  forwards them.
+- [swiftlang/github-workflows](https://github.com/swiftlang/github-workflows) does every job it can:
+  the pipelines call its `soundness.yml` and `swift_package_test.yml`, and this repository never
+  copies them.
 - A workflow belongs here only when swiftlang has none for the job, or has one that cannot do it:
   - `tests.yml` is `swift_package_test.yml`'s Linux job for a package with private dependencies
     or Postgres tests. swiftlang's workflow takes no secrets, so it cannot fetch private
@@ -70,12 +88,15 @@ specific to these workflows. Read it before adding or changing one.
 
 - Pin every action and reusable workflow to its latest release's full commit with the release in
   a comment (`# v7.0.1`); `# main` only when the upstream publishes no releases.
-- Logic stays inline in `run:` steps: a called workflow runs in the caller's checkout, so a script
-  here would need a second checkout of this repository, and inline steps show callers exactly
-  what ran.
-- Steps run under GitHub's `bash -e -o pipefail`. Quote expansions, pass inputs through `env:`
-  rather than interpolating them into scripts (a command input such as `linux_build_command` is
-  the exception: it runs as given, as in swiftlang), and report failures with `::error::`.
+- Shell lives in `.github/scripts/*.sh`, never in a `run:` block; a step runs one script with
+  `bash "$SCRIPTS/<script>.sh"`. A called workflow runs in the caller's checkout, so it finds its
+  scripts through `uses: $/.github/actions/scripts`, which returns this repository's
+  `.github/scripts` at the workflow's own commit. A command input such as `linux_build_command`
+  is the one `run:` that isn't a script: it runs as given, as in swiftlang.
+- A script starts with `#!/bin/bash`, the `##` license header and `set -euo pipefail`, and lists
+  the environment it reads. Inputs reach it through `env:`, never interpolated into a command.
+  It quotes expansions, reports failures with `::error::`, and passes shellcheck, which Soundness
+  runs.
 - Workflow file names, inputs, secrets, and the `Deploy <environment>` job name are public API.
   Removing or renaming one is a major change.
 - Files carry the compact MIT header from `.license_header_template`.

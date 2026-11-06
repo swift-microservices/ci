@@ -1,0 +1,19 @@
+# Copyright (c) 2026 Zaid Rahhawi
+# SPDX-License-Identifier: MIT
+# See LICENSE for license information.
+
+name: Scripts
+description: >-
+  Returns the path of this repository's .github/scripts at the commit of the workflow that uses it,
+  through `uses: $/.github/actions/scripts`, so a called workflow runs its own scripts rather than the
+  caller's checkout.
+outputs:
+  directory:
+    description: Absolute path of .github/scripts.
+    value: ${{ steps.directory.outputs.directory }}
+runs:
+  using: composite
+  steps:
+    - id: directory
+      shell: bash
+      run: echo "directory=$(cd "$GITHUB_ACTION_PATH/../../scripts" && pwd)" >> "$GITHUB_OUTPUT"
