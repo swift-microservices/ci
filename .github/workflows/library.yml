@@ -38,6 +38,10 @@ on:
         type: boolean
         description: Fail a pull request that breaks the public API; true from 1.0.
         default: false
+      license_header_check_enabled:
+        type: boolean
+        description: Check every file's license header against .license_header_template.
+        default: true
       docs_check_targets:
         type: string
         description: Targets whose documentation Soundness builds (space-separated); empty builds none.
@@ -91,6 +95,7 @@ jobs:
     uses: swiftlang/github-workflows/.github/workflows/soundness.yml@87329d126a6992483ba89aabefa1eaef1e5b0aad  # 0.0.17
     with:
       api_breakage_check_enabled: ${{ inputs.api_breakage_check_enabled }}
+      license_header_check_enabled: ${{ inputs.license_header_check_enabled }}
       docs_check_enabled: ${{ inputs.docs_check_targets != '' }}
       docs_check_targets: ${{ inputs.docs_check_targets }}
 
