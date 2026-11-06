@@ -7,13 +7,15 @@ specific to these workflows. Read it before adding or changing one.
 
 ## Pipelines and building blocks
 
-- Every repository calls one pipeline for its kind: `library.yml` (`kind: public` or `system`) or
-  `service.yml`, plus `pull_request_label.yml` and `release.yml` for a library, and `deploy.yml`
+- Every repository calls one pipeline: `library.yml` or `service.yml`, plus `pull_request_label.yml` and `release.yml` for a library, and `deploy.yml`
   and `cleanup-images.yml` for a service. A change every repository needs (a toolchain, a flag, a
   check, a pin) is made here once and reaches them through the pin Dependabot moves.
-- A pipeline holds the standard: which jobs run on which event, the toolchains per kind, and the
-  strict flags. Its inputs cover only what differs between repositories (products, Postgres, docs
-  targets, application ids); a repository that needs more calls the building blocks directly.
+- A pipeline holds the standard: which jobs run on which event, the default platforms, and the
+  strict flags. Its inputs cover only what differs between repositories (platforms, products,
+  Postgres, docs targets, application ids); a repository that needs more calls the building blocks
+  directly.
+- Foundation linking always runs, so every repository has the same required checks. A product that
+  still links Foundation through a dependency is named in `excluded_products` until it doesn't.
 - A pipeline calls this repository's workflows with `$/` (`uses: $/.github/workflows/tests.yml`), so
   they run at the pipeline's own commit. actionlint 1.7.12 doesn't know `$/`, so this repository's
   actionlint step ignores that one message.

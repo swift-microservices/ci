@@ -4,11 +4,10 @@
 
 name: Service
 
-# A Swift service's whole CI and delivery to staging. On a pull request: Soundness, Tests and a
-# validated image. On a push to main: Tests, then the image published once as :<commit-sha>, then
-# deployed to staging. Any other run validates the image without publishing it. Foundation linking
-# joins once every package the service depends on is Foundation-free. Production is the service's own
-# manual workflow, calling deploy.yml.
+# A Swift service's whole CI and delivery to staging. On a pull request: Soundness, Tests, Foundation
+# linking and a validated image. On a push to main: Tests and Foundation linking, then the image
+# published once as :<commit-sha>, then deployed to staging. Any other run validates the image without
+# publishing it. Production is the service's own manual workflow, calling deploy.yml.
 #
 # The caller grants contents: read, packages: write and actions: read: a called workflow can't hold
 # more than its caller gives it.
@@ -39,10 +38,12 @@ on:
         type: string
         description: Postgres image started beside the tests, such as postgres:18-alpine; empty starts none.
         default: ""
-      foundation_linking:
-        type: boolean
-        description: Check that the service's product links no full Foundation; true once its dependencies allow.
-        default: false
+      excluded_products:
+        type: string
+        description: >-
+          service_product while it still links Foundation through a dependency. It isn't checked then;
+          removing it from the list checks it again.
+        default: ""
     secrets:
       PACKAGES_TOKEN:
         description: Token with read access to the private repositories the package depends on, if any.
@@ -79,11 +80,11 @@ jobs:
 
   foundation-linking:
     name: Foundation linking
-    if: ${{ inputs.foundation_linking }}
     uses: $/.github/workflows/foundation-linking.yml
     with:
       container_image: swift:${{ inputs.swift_version }}-noble
       executable_products: ${{ inputs.service_product }}
+      excluded_products: ${{ inputs.excluded_products }}
     secrets:
       PACKAGES_TOKEN: ${{ secrets.PACKAGES_TOKEN }}
 
@@ -101,11 +102,7 @@ jobs:
   publish:
     name: Publish image
     needs: [tests, foundation-linking]
-    # Foundation linking may be skipped; Tests may not.
-    if: >-
-      ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/main'
-      && needs.tests.result == 'success'
-      && contains(fromJSON('["success", "skipped"]'), needs.foundation-linking.result) }}
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
     permissions:
       contents: read
       packages: write

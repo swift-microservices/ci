@@ -2,15 +2,15 @@
 
 The GitHub Actions CI and delivery of every Swift library and service built the
 [swift-microservices-architect](https://github.com/swift-microservices/swift-microservices-architect-skill)
-way. A repository calls one pipeline for its kind; a change made here reaches every repository
+way. A repository calls one pipeline, for a library or a service; a change made here reaches every repository
 through the pin Dependabot moves.
 
 ## Pipelines
 
 | Workflow | Called by | Runs |
 | --- | --- | --- |
-| `library.yml` | A library's `ci.yml`, with `kind: public` or `kind: system` | Pull request: Soundness, Tests, Foundation linking. Push or schedule: Tests, Foundation linking |
-| `service.yml` | A service's `ci.yml` | Pull request: Soundness, Tests, Build image. Push to `main`: Tests, then Publish image as `:<commit-sha>`, then Staging. Foundation linking once `foundation_linking: true` |
+| `library.yml` | A library's `ci.yml` | Pull request: Soundness, Tests, Foundation linking. Push or schedule: Tests, Foundation linking |
+| `service.yml` | A service's `ci.yml` | Pull request: Soundness, Tests, Foundation linking, Build image. Push to `main`: Tests and Foundation linking, then Publish image as `:<commit-sha>`, then Staging |
 | `pull_request_label.yml` | A library's `pull_request_label.yml` | Exactly one semver label on the pull request |
 | `release.yml` | A library's `release.yml` | The next release from the merged pull requests' labels |
 | `deploy.yml` | A service's `deploy.yml`, for production | A commit's image on Dokploy, refused for a commit staging never ran |
@@ -33,9 +33,13 @@ dependencies nor a Postgres.
 
 - `main` changes only through pull requests that passed their checks, so a push to `main` skips
   Soundness and reruns the tests on the merged commit.
-- A library tests in release, a public one on every Swift version swiftlang supports from its tools
-  version, nightlies and the static Linux SDK, a system one on `swift_version` and linux/arm64. A
-  service tests its committed `Package.resolved` on `swift_version` and linux/arm64.
+- A library tests in release, by default on Swift 6.3, Ubuntu noble and linux/arm64, the platform
+  services run on; one that others build with passes more `linux_swift_versions`, `linux_host_archs`
+  and `enable_linux_static_sdk_build: true`. A service tests its committed `Package.resolved` on
+  `swift_version` and linux/arm64.
+- Foundation linking always runs. `excluded_products` names the products, a library's or a service's
+  executable, that still link Foundation through a dependency; removing one from the list checks it
+  again.
 - The tests pass `-warnings-as-errors` and `--explicit-target-dependency-import-check error`, and a
   library also `-require-explicit-sendable`, which checks `public` declarations. Nightlies drop
   `-warnings-as-errors`. The image build passes none of them, so a warning a newer toolchain adds
@@ -70,7 +74,6 @@ jobs:
     name: CI
     uses: swift-microservices/ci/.github/workflows/library.yml@<commit>  # <release>
     with:
-      kind: system
       excluded_products: <Org>Persistence
     secrets:
       PACKAGES_TOKEN: ${{ secrets.PACKAGES_TOKEN }}
@@ -205,9 +208,16 @@ jobs:
       package_name: <repository>
 ```
 
-To put an older commit back on staging, re-run the Staging job of that commit's CI run. A service
-sets `foundation_linking: true` once every package it depends on is Foundation-free; a library sets
-`foundation_linking: false` only while every product depends on one that isn't.
+A library others build with tests more platforms:
+
+```yaml
+    with:
+      linux_swift_versions: '["6.2", "6.3", "6.4", "nightly-main", "nightly-6.4.x"]'
+      linux_host_archs: '["x86_64", "aarch64"]'
+      enable_linux_static_sdk_build: true
+```
+
+To put an older commit back on staging, re-run the Staging job of that commit's CI run.
 
 ## Requirements
 
