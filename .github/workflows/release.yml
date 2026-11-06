@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: MIT
 # See LICENSE for license information.
 
-name: Auto Release
+name: Release
 
 on:
   workflow_dispatch:
@@ -12,5 +12,5 @@ permissions:
   pull-requests: read
 
 jobs:
-  auto-release:
+  release:
     uses: apple/swift-temporal-sdk/.github/workflows/auto-release.yml@4625ee27ee5dcd6498290a8a10610897daf543b8  # 1.5.0

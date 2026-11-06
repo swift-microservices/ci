@@ -1,16 +1,18 @@
 # ci
 
-Reusable GitHub Actions workflows for Swift services: testing with private dependencies, building
-and publishing one image per commit, and deploying it to Dokploy, staging first and production by
-hand.
+Reusable GitHub Actions workflows for Swift packages and services: testing with private
+dependencies or a Postgres, checking that libraries don't link Foundation, building and publishing
+one image per commit, and deploying it to Dokploy, staging first and production by hand.
 
 Everything [swiftlang/github-workflows](https://github.com/swiftlang/github-workflows) already does
 is called from there directly: `soundness.yml` for every repository, and `swift_package_test.yml`
-for every package without private dependencies. This repository adds only what it lacks.
+for every package that needs neither private dependencies nor a Postgres. This repository adds only
+what it lacks.
 
 | Workflow | Does |
 | --- | --- |
-| `tests.yml` | swiftlang's `swift_package_test.yml` Linux job, with the same inputs, for a package whose dependencies include private repositories: SwiftPM fetches them with `PACKAGES_TOKEN` |
+| `tests.yml` | swiftlang's `swift_package_test.yml` Linux job, with the same inputs, for a package that needs private dependencies, which SwiftPM fetches with `PACKAGES_TOKEN`, or a Postgres beside its tests, started from `postgres_image` |
+| `foundation-linking.yml` | Builds an empty executable that links every library product, and each executable product `executable_products` names, and fails when one links Foundation's full library or ICU; `excluded_products` names the library products allowed to |
 | `build-image.yml` | Builds the `Containerfile` for linux/arm64 and checks that it runs as an unprivileged user and links every runtime library; with `publish: true` on `main`, pushes it once as `:<commit-sha>` |
 | `deploy.yml` | Resolves a commit to `:<commit-sha>@sha256:…`, refuses production for a commit staging never ran, then deploys it to each Dokploy application in order and waits for each to finish |
 | `cleanup-images.yml` | Keeps the newest versions of a container package (30 by default) |
@@ -18,14 +20,20 @@ for every package without private dependencies. This repository adds only what i
 ## Delivery
 
 ```
-pull request ──► soundness + tests + build image (validate, no push)
-push to main ──► soundness + tests ──► build image (push :<commit-sha>) ──► deploy staging
+pull request ──► soundness + tests + build image (validate, no push); a new push cancels the run
+push to main ──► tests ──► build image (push :<commit-sha>) ──► deploy staging
 Deploy production (manual) ──► the latest main commit, or a chosen one, if staging ran it
 weekly ──► cleanup-images
 ```
 
-`main` is the only long-lived branch. Production runs only a commit whose push to `main` deployed
-it to staging. Rolling back means deploying an older commit; nothing is rebuilt.
+`main` is the only long-lived branch, and it changes only through pull requests that passed their
+checks, so Main skips soundness and reruns the tests on the merged commit. Production runs only a
+commit whose push to `main` deployed it to staging. Rolling back means deploying an older commit;
+nothing is rebuilt.
+
+The tests' strict flags gate the pull request; the image build passes none of them, so a warning a
+newer toolchain adds never blocks a release or a hotfix. `-require-explicit-sendable` checks `public`
+declarations, so libraries pass it and services, built on `package` access, don't.
 
 ## Callers
 
@@ -43,30 +51,21 @@ on:
     branches: [main]
 
 jobs:
-  soundness:
-    name: Soundness
-    uses: swiftlang/github-workflows/.github/workflows/soundness.yml@<commit>  # <release>
-    with:
-      api_breakage_check_enabled: false
-      docs_check_enabled: false
-
   tests:
     name: Tests
-    # Without private dependencies, call swiftlang/github-workflows' swift_package_test.yml
-    # with the same inputs instead, and drop `secrets`.
+    # Without private dependencies or a Postgres, call swiftlang/github-workflows'
+    # swift_package_test.yml with the same inputs instead, and drop `secrets`.
     uses: swift-microservices/ci/.github/workflows/tests.yml@<commit>  # <release>
     with:
       linux_build_command: swift test --disable-automatic-resolution
-      swift_flags: >-
-        -Xswiftc -warnings-as-errors
-        --explicit-target-dependency-import-check error
-        -Xswiftc -require-explicit-sendable
+      postgres_image: postgres:18-alpine
+      swift_flags: -Xswiftc -warnings-as-errors --explicit-target-dependency-import-check error
     secrets:
       PACKAGES_TOKEN: ${{ secrets.PACKAGES_TOKEN }}
 
   publish:
     name: Publish image
-    needs: [soundness, tests]
+    needs: [tests]
     permissions:
       contents: read
       packages: write
@@ -95,8 +94,9 @@ jobs:
       DOKPLOY_TOKEN: ${{ secrets.DOKPLOY_TOKEN }}
 ```
 
-The pull request workflow runs the same `soundness` and `tests` jobs and `build-image.yml` without
-`publish`.
+The pull request workflow runs swiftlang's `soundness.yml` (with `api_breakage_check_enabled` and
+`docs_check_enabled` off), the same `tests` job, and `build-image.yml` without `publish`, in a
+`concurrency` group of the pull request's number with `cancel-in-progress: true`.
 
 ```yaml
 # .github/workflows/deploy.yml
@@ -156,6 +156,20 @@ jobs:
     with:
       package_name: <repository>
 ```
+
+A library calls `foundation-linking.yml` from its pull request and `main` workflows, beside its
+tests:
+
+```yaml
+  foundation-linking:
+    name: Foundation linking
+    uses: swift-microservices/ci/.github/workflows/foundation-linking.yml@<commit>  # <release>
+    with:
+      excluded_products: <Org>Testing
+```
+
+A service adds the same job, with `executable_products: <product>` and `PACKAGES_TOKEN`, once every
+package it depends on is Foundation-free.
 
 ## Requirements
 

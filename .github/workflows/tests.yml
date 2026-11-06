@@ -4,10 +4,11 @@
 
 name: Tests
 
-# swiftlang/github-workflows' swift_package_test.yml for a package whose dependencies include private
-# GitHub repositories. That workflow takes no secrets, so it cannot fetch them
-# (swiftlang/github-workflows#59). This one runs the same Linux job, with the same input names, after
-# giving SwiftPM a token. A package without private dependencies calls swiftlang's workflow directly.
+# swiftlang/github-workflows' swift_package_test.yml for a package that needs what that workflow can't
+# give: private dependencies, since it takes no secrets (swiftlang/github-workflows#59), or a Postgres
+# beside the tests, since it starts no service containers. This one runs the same Linux job, with the
+# same input names, after giving SwiftPM a token when there is one and starting Postgres when an image
+# is given. A package that needs neither calls swiftlang's workflow directly.
 on:
   workflow_call:
     inputs:
@@ -35,10 +36,21 @@ on:
         type: string
         description: Flags appended to the build command.
         default: ""
+      swift_nightly_flags:
+        type: string
+        description: Flags appended to the build command on nightly toolchains; empty uses swift_flags.
+        default: ""
+      postgres_image:
+        type: string
+        description: >-
+          Postgres image started beside the tests, such as postgres:18-alpine; empty starts none. The
+          tests reach it through POSTGRES_HOST, POSTGRES_PORT, POSTGRES_USER, POSTGRES_PASSWORD, and
+          POSTGRES_DB.
+        default: ""
     secrets:
       PACKAGES_TOKEN:
-        description: Token with read access to the private repositories the package depends on.
-        required: true
+        description: Token with read access to the private repositories the package depends on, if any.
+        required: false
 
 permissions:
   contents: read
@@ -56,6 +68,26 @@ jobs:
         arch: ${{ fromJson(inputs.linux_host_archs) }}
     container:
       image: ${{ contains(matrix.swift_version, 'nightly') && 'swiftlang/swift' || 'swift' }}:${{ matrix.swift_version }}-${{ matrix.os_version }}
+    services:
+      postgres:
+        # An empty image starts no service.
+        image: ${{ inputs.postgres_image }}
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        options: >-
+          --health-cmd "pg_isready -h 127.0.0.1 -U postgres -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    # Set only when Postgres runs, so tests that need it can tell when it doesn't.
+    env:
+      POSTGRES_HOST: ${{ inputs.postgres_image != '' && 'postgres' || '' }}
+      POSTGRES_PORT: ${{ inputs.postgres_image != '' && '5432' || '' }}
+      POSTGRES_USER: ${{ inputs.postgres_image != '' && 'postgres' || '' }}
+      POSTGRES_PASSWORD: ${{ inputs.postgres_image != '' && 'postgres' || '' }}
+      POSTGRES_DB: ${{ inputs.postgres_image != '' && 'postgres' || '' }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -65,10 +97,16 @@ jobs:
         env:
           PACKAGES_TOKEN: ${{ secrets.PACKAGES_TOKEN }}
         run: |
+          if [ -z "$PACKAGES_TOKEN" ]; then
+            echo 'No PACKAGES_TOKEN: the package has only public dependencies'
+            exit 0
+          fi
           printf 'machine github.com login x-access-token password %s\n' "$PACKAGES_TOKEN" > "$HOME/.netrc"
           chmod 600 "$HOME/.netrc"
       - name: Pre-build
         if: ${{ inputs.linux_pre_build_command != '' }}
         run: ${{ inputs.linux_pre_build_command }}
       - name: Build and test
-        run: ${{ inputs.linux_build_command }} ${{ inputs.swift_flags }}
+        run: >-
+          ${{ inputs.linux_build_command }}
+          ${{ (contains(matrix.swift_version, 'nightly') && inputs.swift_nightly_flags) || inputs.swift_flags }}
