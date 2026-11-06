@@ -39,9 +39,10 @@ adapter; another platform adds `deploy_<platform>.yml` with the same inputs wher
 
 - `main` changes only through pull requests that passed their checks, so a push to `main` skips
   Soundness and reruns the tests on the merged commit.
-- The toolchain is the package's `swift-tools-version`: a pipeline reads it, so tests, Foundation
-  linking and the Containerfile's `swift:<tools version>-noble` can't drift apart. A library others
-  build with widens `linux_swift_versions`, `linux_host_archs` and `enable_linux_static_sdk_build`.
+- The toolchain is the package's `swift-tools-version`: a pipeline reads it, so Soundness, tests,
+  Foundation linking and the Containerfile's `swift:<tools version>-noble` can't drift apart. A
+  library others build with widens `linux_swift_versions`, `linux_host_archs` and
+  `enable_linux_static_sdk_build`.
 - Passing `PACKAGES_TOKEN` is what marks private dependencies; there's no other input for them.
 - The tests pass `-warnings-as-errors` and `--explicit-target-dependency-import-check error`, and a
   library also `-require-explicit-sendable`, which checks `public` declarations. Nightlies drop
