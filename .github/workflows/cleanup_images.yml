@@ -1,0 +1,31 @@
+# Copyright (c) 2026 Zaid Rahhawi
+# SPDX-License-Identifier: MIT
+# See LICENSE for license information.
+
+name: Clean up images
+
+on:
+  workflow_call:
+    inputs:
+      package_name:
+        type: string
+        description: The container package, usually the repository name.
+        required: true
+      min_versions_to_keep:
+        type: number
+        description: How many of the newest image versions to keep.
+        default: 30
+
+# Permissions are inherited: callers grant packages: write.
+jobs:
+  cleanup:
+    name: Delete old image versions
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Keep the newest versions
+        uses: actions/delete-package-versions@e5bc658cc4c965c472efe991f8beea3981499c55  # v5.0.0
+        with:
+          package-name: ${{ inputs.package_name }}
+          package-type: container
+          min-versions-to-keep: ${{ inputs.min_versions_to_keep }}

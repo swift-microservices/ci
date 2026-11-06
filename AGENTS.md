@@ -8,15 +8,22 @@ specific to these workflows. Read it before adding or changing one.
 ## Pipelines and building blocks
 
 - Repositories call only this repository's workflows, never swiftlang's or Apple's: this
-  repository routes to them. Every repository calls one pipeline: `library.yml` or `service.yml`, plus `pull_request_label.yml` and `release.yml` for a library, and `deploy.yml`
-  and `cleanup-images.yml` for a service. A change every repository needs (a toolchain, a flag, a
-  check, a pin) is made here once and reaches them through the pin Dependabot moves.
-- A pipeline holds the standard: which jobs run on which event, the default platforms, and the
+  repository routes to them. Every repository's CI workflow calls one CI pipeline, `library.yml` or
+  `service.yml`; a library also calls `pull_request_label.yml` and `release.yml`, and a service
+  `deploy_dokploy.yml` (staging and production) and `cleanup_images.yml`. A change every repository
+  needs (a flag, a check, a pin) is made here once and reaches them through the pin Dependabot
+  moves.
+- A CI pipeline holds the standard: which jobs run on which event, the default platforms, and the
   strict flags. Its inputs cover only what differs between repositories (platforms, products,
-  Postgres, docs targets, application ids); a repository that needs more calls the building blocks
-  directly.
+  Postgres, docs targets); what it can read from the repository, it reads: the toolchain from
+  `swift-tools-version`, private dependencies from a passed `PACKAGES_TOKEN`.
+- Deployment isn't part of a CI pipeline: `service.yml` ends at a published image, and a
+  deployment adapter, `deploy_dokploy.yml`, deploys it. Another platform is another
+  `deploy_<platform>.yml` with the same inputs where they apply and the same `Deploy <environment>`
+  job name.
 - Foundation linking always runs, so every repository has the same required checks. A product that
-  still links Foundation through a dependency is named in `excluded_products` until it doesn't.
+  still links Foundation through a dependency is named in
+  `foundation_linking_check_excluded_products` until it doesn't.
 - A pipeline calls this repository's workflows with `$/` (`uses: $/.github/workflows/tests.yml`), so
   they run at the pipeline's own commit. actionlint 1.7.12 doesn't know `$/`, so this repository's
   actionlint step ignores that one message.
@@ -38,8 +45,8 @@ specific to these workflows. Read it before adding or changing one.
     `linux_build_command`, `swift_flags`, `swift_nightly_flags`) and adds only `postgres_image`, so
     a package moves between the two by changing `uses:`, `secrets:`, and that input. Remove it if
     swiftlang gains both.
-  - `foundation-linking.yml`, `build-image.yml`, `deploy.yml`, and `cleanup-images.yml` have no
-    swiftlang counterpart.
+  - `foundation_linking.yml`, `build_image.yml`, `deploy_dokploy.yml`, and `cleanup_images.yml`
+    have no swiftlang counterpart.
 - Inside a workflow, prefer a maintained action to shell: `actions/checkout`,
   `docker/setup-buildx-action`, `docker/build-push-action`, `docker/login-action`,
   `actions/delete-package-versions`. Shell is for what no action does well: the Foundation
@@ -54,13 +61,13 @@ specific to these workflows. Read it before adding or changing one.
 - **Trunk.** `main` is the only long-lived branch. A push to `main` builds one image, publishes it
   once as `<image_repository>:<full commit SHA>`, and deploys it to staging. No other tags are
   published, and a commit's tag is never rewritten.
-- **One deploy path.** Staging (from the push) and production (from the service's manual
-  workflow) both run `deploy.yml`. It resolves the commit to `:<commit-sha>@sha256:…`, so Dokploy
+- **One deploy path.** Staging (from the CI workflow's push) and production (from the service's
+  manual workflow) both run `deploy_dokploy.yml`. It resolves the commit to `:<commit-sha>@sha256:…`, so Dokploy
   shows the commit and Docker pulls by digest. Production requires a successful job whose name
-  ends in `Deploy staging` in a push run of that commit, which is `deploy.yml`'s own job name for
-  staging. Deploying an older commit is the rollback; nothing is rebuilt.
+  ends in `Deploy staging` in a push run of that commit, which is `deploy_dokploy.yml`'s own job
+  name for staging; on a pull request the same job runs as `Check staging` with `check_only`. Deploying an older commit is the rollback; nothing is rebuilt.
 - **Dokploy.** Applications use the Docker provider with registry credentials and auto-deploy off.
-  `deploy.yml` checks that every ID in `application_ids` names an application before changing any,
+  `deploy_dokploy.yml` checks that every ID in `application_ids` names an application before changing any,
   then, one at a time in the listed order, sets the image, requests a deployment titled with the
   short commit, and waits up to 15 minutes for a deployment newer than the one before the request
   to be `done`. `error`, `cancelled`, or the timeout fails the run and leaves the rest untouched.
@@ -70,7 +77,7 @@ specific to these workflows. Read it before adding or changing one.
   unprivileged user and has the product at `/app/<product>`, with every runtime library it links.
   The image is not started in CI; staging is where a release first runs.
 - **Private packages.** `PACKAGES_TOKEN` reads the private repositories a package depends on.
-  `tests.yml` and `foundation-linking.yml` write it to `~/.netrc` when it's given; `build-image.yml`
+  `tests.yml` and `foundation_linking.yml` write it to `~/.netrc` when it's given; `build_image.yml`
   passes it as the `netrc` build secret, which the Containerfile mounts for `swift package resolve`
   only.
 - **Postgres.** With `postgres_image` set, `tests.yml` starts it as the `postgres` service, with
@@ -79,12 +86,23 @@ specific to these workflows. Read it before adding or changing one.
   nothing and leaves them unset, so a test that checks for `POSTGRES_HOST` skips.
 - **Foundation linking.** A library product, and an executable product `executable_products`
   names, links neither `libFoundation`, `libFoundationInternationalization`, nor `lib_FoundationICU`,
-  unless `excluded_products` names the library product. Builds are dynamic, since `ldd` sees
+  unless `excluded_products` names it. Builds are dynamic, since `ldd` sees
   nothing in a static binary, and use the committed `Package.resolved` when there is one.
 - **One deployment at a time** per caller repository and environment (`deploy-<environment>`),
   never cancelled midway.
 
 ## Conventions
+
+- **Names.** Workflow files and inputs are snake_case, as swiftlang's are
+  (`swift_package_test.yml`, `linux_swift_versions`); job IDs and scripts are kebab-case. An input
+  that passes through to, or mirrors, swiftlang's or Apple's keeps their name. A pipeline's own
+  input names the check it configures, as swiftlang's `soundness.yml` does
+  (`foundation_linking_check_excluded_products`); a building block's doesn't, since the workflow
+  is its context (`foundation_linking.yml`'s `excluded_products`). A value the workflow can read
+  from the repository, such as the toolchain, isn't an input.
+- **Deprecation.** Renaming or removing a workflow, input or secret keeps the old one as a
+  deprecated alias forwarding to the new for one release, and removes it in the next major
+  release, so a repository moving its pin keeps working.
 
 - Pin every action and reusable workflow to its latest release's full commit with the release in
   a comment (`# v7.0.1`); `# main` only when the upstream publishes no releases.
@@ -98,7 +116,7 @@ specific to these workflows. Read it before adding or changing one.
   It quotes expansions, reports failures with `::error::`, and passes shellcheck, which Soundness
   runs.
 - Workflow file names, inputs, secrets, and the `Deploy <environment>` job name are public API.
-  Removing or renaming one is a major change.
+  Removing or renaming one is a major change, after a deprecated alias.
 - Files carry the compact MIT header from `.license_header_template`.
 
 ## Releases

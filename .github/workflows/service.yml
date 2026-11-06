@@ -4,59 +4,71 @@
 
 name: Service
 
-# A Swift service's whole CI and delivery to staging. On a pull request: Soundness, Tests, Foundation
-# linking and a validated image. On a push to main: Tests and Foundation linking, then the image
-# published once as :<commit-sha>, then deployed to staging. Any other run validates the image without
-# publishing it. Production is the service's own manual workflow, calling deploy.yml.
+# A Swift service's whole CI. On a pull request: Soundness, Tests, Foundation linking and a validated
+# image. On a push to main: Tests and Foundation linking, then the image published once as
+# :<commit-sha>. Any other run validates the image without publishing it. Tests and Foundation
+# linking run on the package's swift-tools-version, the toolchain its Containerfile builds with.
 #
-# The caller grants contents: read, packages: write and actions: read: a called workflow can't hold
-# more than its caller gives it.
+# Deployment isn't part of it: the service's CI workflow calls a deployment workflow, such as
+# deploy_dokploy.yml, after this one. The caller grants contents: read and packages: write, since a
+# called workflow can't hold more than its caller gives it.
 on:
   workflow_call:
     inputs:
-      service_product:
+      executable_product:
         type: string
-        description: The executable product the image runs and Foundation linking checks.
+        description: The executable product the image runs and the Foundation linking check builds.
         required: true
       image_repository:
         type: string
         description: Where the image is published, such as ghcr.io/<owner>/<repository>.
         required: true
-      staging_application_ids:
-        type: string
-        description: The Dokploy applications that run the image on staging, in deploy order (JSON list).
-        required: true
-      swift_version:
-        type: string
-        description: The toolchain the tests and Foundation linking use; the Containerfile's matches it.
-        default: "6.3"
-      build_target:
+      containerfile_target:
         type: string
         description: Containerfile stage to build; empty builds the last one.
         default: ""
       postgres_image:
         type: string
-        description: Postgres image started beside the tests, such as postgres:18-alpine; empty starts none.
+        description: Postgres image started beside the tests, such as postgres:<major>-alpine; empty starts none.
         default: ""
-      excluded_products:
+      foundation_linking_check_excluded_products:
         type: string
         description: >-
-          service_product while it still links Foundation through a dependency. It isn't checked then;
-          removing it from the list checks it again.
+          executable_product while it links Foundation through a dependency, so the Foundation
+          linking check skips it; removing it checks it again.
         default: ""
     secrets:
       PACKAGES_TOKEN:
         description: Token with read access to the private repositories the package depends on, if any.
-        required: false
-      DOKPLOY_URL:
-        required: false
-      DOKPLOY_TOKEN:
         required: false
 
 permissions:
   contents: read
 
 jobs:
+  setup:
+    name: Setup
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      swift_version: ${{ steps.package.outputs.swift_version }}
+    steps:
+      - name: Checkout Package.swift
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: Package.swift
+          sparse-checkout-cone-mode: false
+      - name: Find this repository's scripts
+        id: scripts
+        uses: $/.github/actions/scripts
+      - name: Read the toolchain
+        id: package
+        env:
+          PACKAGES_TOKEN: ${{ secrets.PACKAGES_TOKEN }}
+          SCRIPTS: ${{ steps.scripts.outputs.directory }}
+        run: bash "$SCRIPTS/inspect-package.sh"
+
   soundness:
     name: Soundness
     if: ${{ github.event_name == 'pull_request' }}
@@ -67,9 +79,10 @@ jobs:
 
   tests:
     name: Tests
+    needs: [setup]
     uses: $/.github/workflows/tests.yml
     with:
-      linux_swift_versions: ${{ format('["{0}"]', inputs.swift_version) }}
+      linux_swift_versions: ${{ format('["{0}"]', needs.setup.outputs.swift_version) }}
       linux_os_versions: '["noble"]'
       linux_host_archs: '["aarch64"]'
       linux_build_command: swift test --disable-automatic-resolution
@@ -80,22 +93,23 @@ jobs:
 
   foundation-linking:
     name: Foundation linking
-    uses: $/.github/workflows/foundation-linking.yml
+    needs: [setup]
+    uses: $/.github/workflows/foundation_linking.yml
     with:
-      container_image: swift:${{ inputs.swift_version }}-noble
-      executable_products: ${{ inputs.service_product }}
-      excluded_products: ${{ inputs.excluded_products }}
+      container_image: swift:${{ needs.setup.outputs.swift_version }}-noble
+      executable_products: ${{ inputs.executable_product }}
+      excluded_products: ${{ inputs.foundation_linking_check_excluded_products }}
     secrets:
       PACKAGES_TOKEN: ${{ secrets.PACKAGES_TOKEN }}
 
   image:
     name: Build image
     if: ${{ github.event_name != 'push' || github.ref != 'refs/heads/main' }}
-    uses: $/.github/workflows/build-image.yml
+    uses: $/.github/workflows/build_image.yml
     with:
-      service_product: ${{ inputs.service_product }}
+      executable_product: ${{ inputs.executable_product }}
       image_repository: ${{ inputs.image_repository }}
-      build_target: ${{ inputs.build_target }}
+      containerfile_target: ${{ inputs.containerfile_target }}
     secrets:
       PACKAGES_TOKEN: ${{ secrets.PACKAGES_TOKEN }}
 
@@ -106,27 +120,11 @@ jobs:
     permissions:
       contents: read
       packages: write
-    uses: $/.github/workflows/build-image.yml
+    uses: $/.github/workflows/build_image.yml
     with:
-      service_product: ${{ inputs.service_product }}
+      executable_product: ${{ inputs.executable_product }}
       image_repository: ${{ inputs.image_repository }}
-      build_target: ${{ inputs.build_target }}
+      containerfile_target: ${{ inputs.containerfile_target }}
       publish: true
     secrets:
       PACKAGES_TOKEN: ${{ secrets.PACKAGES_TOKEN }}
-
-  staging:
-    name: Staging
-    needs: [publish]
-    permissions:
-      contents: read
-      actions: read
-      packages: read
-    uses: $/.github/workflows/deploy.yml
-    with:
-      environment: staging
-      image_repository: ${{ inputs.image_repository }}
-      application_ids: ${{ inputs.staging_application_ids }}
-    secrets:
-      DOKPLOY_URL: ${{ secrets.DOKPLOY_URL }}
-      DOKPLOY_TOKEN: ${{ secrets.DOKPLOY_TOKEN }}

@@ -11,6 +11,7 @@
 # - IMAGE: the image by tag and digest.
 # - COMMIT: the deployed commit.
 # - RUN_URL: this run, for the deployment's description.
+# - CHECK_ONLY: true to check that the token reads every application and deploy nothing.
 
 set -euo pipefail
 
@@ -50,6 +51,11 @@ for id in "${ids[@]}"; do
   fi
   names+=("$name")
 done
+
+if [ "${CHECK_ONLY:-false}" = true ]; then
+  echo "The token reads every application: ${names[*]}"
+  exit 0
+fi
 
 # One application at a time; a failure leaves the rest on their current image.
 for i in "${!ids[@]}"; do
