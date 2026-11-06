@@ -27,6 +27,10 @@ on:
         type: string
         description: Containerfile stage to build; empty builds the last one.
         default: ""
+      license_header_check_enabled:
+        type: boolean
+        description: Check every file's license header against .license_header_template.
+        default: true
       postgres_image:
         type: string
         description: Postgres image started beside the tests, such as postgres:<major>-alpine; empty starts none.
@@ -75,6 +79,7 @@ jobs:
     uses: swiftlang/github-workflows/.github/workflows/soundness.yml@87329d126a6992483ba89aabefa1eaef1e5b0aad  # 0.0.17
     with:
       api_breakage_check_enabled: false
+      license_header_check_enabled: ${{ inputs.license_header_check_enabled }}
       docs_check_enabled: false
 
   tests:
