@@ -1,8 +1,8 @@
 # Repository guidelines
 
-This repository holds reusable GitHub Actions workflows for Swift services built the
-[swift-microservices skills](https://github.com/swift-microservices/skills) way. The
-`delivering-swift-services` skill owns every general delivery rule; this file records what is
+This repository holds reusable GitHub Actions workflows for Swift packages and services built the
+[swift-microservices-architect](https://github.com/swift-microservices/swift-microservices-architect-skill)
+way. That skill's `delivery.md` reference owns every general CI/CD rule; this file records what is
 specific to these workflows. Read it before adding or changing one.
 
 ## Reuse first
@@ -12,18 +12,20 @@ specific to these workflows. Read it before adding or changing one.
   repository never wraps them, re-exports them, or copies their inputs into a workflow that only
   forwards them.
 - A workflow belongs here only when swiftlang has none for the job, or has one that cannot do it:
-  - `tests.yml` is `swift_package_test.yml`'s Linux job for a package with private dependencies.
-    swiftlang's workflow takes no secrets, so it cannot fetch them
-    ([swiftlang/github-workflows#59](https://github.com/swiftlang/github-workflows/issues/59)).
-    It keeps swiftlang's input names and formats (`linux_swift_versions`, `linux_os_versions`,
-    `linux_host_archs`, `linux_pre_build_command`, `linux_build_command`, `swift_flags`), so a
-    package moves between the two by changing `uses:` and `secrets:` only. Remove it if swiftlang
-    gains a way to pass credentials.
-  - `build-image.yml`, `deploy.yml`, and `cleanup-images.yml` have no swiftlang counterpart.
+  - `tests.yml` is `swift_package_test.yml`'s Linux job for a package with private dependencies
+    or Postgres tests. swiftlang's workflow takes no secrets, so it cannot fetch private
+    dependencies ([swiftlang/github-workflows#59](https://github.com/swiftlang/github-workflows/issues/59)),
+    and starts no service containers. It keeps swiftlang's input names and formats
+    (`linux_swift_versions`, `linux_os_versions`, `linux_host_archs`, `linux_pre_build_command`,
+    `linux_build_command`, `swift_flags`, `swift_nightly_flags`) and adds only `postgres_image`, so
+    a package moves between the two by changing `uses:`, `secrets:`, and that input. Remove it if
+    swiftlang gains both.
+  - `foundation-linking.yml`, `build-image.yml`, `deploy.yml`, and `cleanup-images.yml` have no
+    swiftlang counterpart.
 - Inside a workflow, prefer a maintained action to shell: `actions/checkout`,
   `docker/setup-buildx-action`, `docker/build-push-action`, `docker/login-action`,
-  `actions/delete-package-versions`. Shell is for what no action does well: the image checks,
-  the staging gate, and Dokploy's API.
+  `actions/delete-package-versions`. Shell is for what no action does well: the Foundation
+  linking check, the image checks, the staging gate, and Dokploy's API.
 - This repository's own pull requests reuse swiftlang's `soundness.yml` (YAML lint, license
   headers, unacceptable language, broken symlinks) and add only actionlint, which swiftlang lacks,
   to check every workflow and the shell in its `run:` steps.
@@ -50,8 +52,15 @@ specific to these workflows. Read it before adding or changing one.
   unprivileged user and has the product at `/app/<product>`, with every runtime library it links.
   The image is not started in CI; staging is where a release first runs.
 - **Private packages.** `PACKAGES_TOKEN` reads the private repositories a package depends on.
-  `tests.yml` writes it to `~/.netrc`; `build-image.yml` passes it as the `netrc` build secret,
-  which the Containerfile mounts for `swift package resolve` only.
+  `tests.yml` and `foundation-linking.yml` write it to `~/.netrc` when it's given; `build-image.yml`
+  passes it as the `netrc` build secret, which the Containerfile mounts for `swift package resolve`
+  only.
+- **Postgres.** With `postgres_image` set, `tests.yml` starts it as the `postgres` service, with
+  user, password, and database `postgres`, and sets `POSTGRES_HOST`, `POSTGRES_PORT`,
+  `POSTGRES_USER`, `POSTGRES_PASSWORD`, and `POSTGRES_DB` for the tests. Without it, it starts
+  nothing and leaves them empty.
+- **Foundation linking.** A library product links neither `libFoundation`,
+  `libFoundationInternationalization`, nor `lib_FoundationICU`, unless `excluded_products` names it.
 - **One deployment at a time** per caller repository and environment (`deploy-<environment>`),
   never cancelled midway.
 
@@ -73,6 +82,6 @@ specific to these workflows. Read it before adding or changing one.
 
 - Every pull request carries exactly one label: `⚠️ semver/major`, `🆕 semver/minor`,
   `🔨 semver/patch`, or `semver/none`. The label check blocks merging without one.
-- Releases are GitHub Releases created by the Auto Release workflow, run by hand on `main`; it
+- Releases are GitHub Releases created by the Release workflow, run by hand on `main`; it
   computes the next version from the merged pull requests' labels. A major bump is cut by hand.
 - Callers pin a release's commit; Dependabot's `github-actions` updates move the pins.

@@ -1,16 +1,18 @@
 # ci
 
-Reusable GitHub Actions workflows for Swift services: testing with private dependencies, building
-and publishing one image per commit, and deploying it to Dokploy, staging first and production by
-hand.
+Reusable GitHub Actions workflows for Swift packages and services: testing with private
+dependencies or a Postgres, checking that libraries don't link Foundation, building and publishing
+one image per commit, and deploying it to Dokploy, staging first and production by hand.
 
 Everything [swiftlang/github-workflows](https://github.com/swiftlang/github-workflows) already does
 is called from there directly: `soundness.yml` for every repository, and `swift_package_test.yml`
-for every package without private dependencies. This repository adds only what it lacks.
+for every package that needs neither private dependencies nor a Postgres. This repository adds only
+what it lacks.
 
 | Workflow | Does |
 | --- | --- |
-| `tests.yml` | swiftlang's `swift_package_test.yml` Linux job, with the same inputs, for a package whose dependencies include private repositories: SwiftPM fetches them with `PACKAGES_TOKEN` |
+| `tests.yml` | swiftlang's `swift_package_test.yml` Linux job, with the same inputs, for a package that needs private dependencies, which SwiftPM fetches with `PACKAGES_TOKEN`, or a Postgres beside its tests, started from `postgres_image` |
+| `foundation-linking.yml` | Builds an empty executable that links every library product and fails when it links Foundation's full library or ICU; `excluded_products` names the products allowed to |
 | `build-image.yml` | Builds the `Containerfile` for linux/arm64 and checks that it runs as an unprivileged user and links every runtime library; with `publish: true` on `main`, pushes it once as `:<commit-sha>` |
 | `deploy.yml` | Resolves a commit to `:<commit-sha>@sha256:…`, refuses production for a commit staging never ran, then deploys it to each Dokploy application in order and waits for each to finish |
 | `cleanup-images.yml` | Keeps the newest versions of a container package (30 by default) |
@@ -52,11 +54,12 @@ jobs:
 
   tests:
     name: Tests
-    # Without private dependencies, call swiftlang/github-workflows' swift_package_test.yml
-    # with the same inputs instead, and drop `secrets`.
+    # Without private dependencies or a Postgres, call swiftlang/github-workflows'
+    # swift_package_test.yml with the same inputs instead, and drop `secrets`.
     uses: swift-microservices/ci/.github/workflows/tests.yml@<commit>  # <release>
     with:
       linux_build_command: swift test --disable-automatic-resolution
+      postgres_image: postgres:18-alpine
       swift_flags: >-
         -Xswiftc -warnings-as-errors
         --explicit-target-dependency-import-check error
@@ -155,6 +158,17 @@ jobs:
     uses: swift-microservices/ci/.github/workflows/cleanup-images.yml@<commit>  # <release>
     with:
       package_name: <repository>
+```
+
+A library calls `foundation-linking.yml` from its pull request and `main` workflows, beside its
+tests:
+
+```yaml
+  foundation-linking:
+    name: Foundation linking
+    uses: swift-microservices/ci/.github/workflows/foundation-linking.yml@<commit>  # <release>
+    with:
+      excluded_products: <Org>Testing
 ```
 
 ## Requirements

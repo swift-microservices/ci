@@ -1,0 +1,107 @@
+# Copyright (c) 2026 Zaid Rahhawi
+# SPDX-License-Identifier: MIT
+# See LICENSE for license information.
+
+name: Foundation linking
+
+# Checks that a package's library products link neither Foundation's full library nor ICU, so code
+# that imports FoundationEssentials keeps the services that depend on it small. It builds an empty
+# executable depending on every library product and fails when that executable links one of them.
+# swiftlang/github-workflows has no such check.
+on:
+  workflow_call:
+    inputs:
+      container_image:
+        type: string
+        description: Image with the Swift toolchain that builds the check.
+        default: swift:6.3-noble
+      excluded_products:
+        type: string
+        description: Library products allowed to link Foundation, such as a testing product (space-separated).
+        default: ""
+    secrets:
+      PACKAGES_TOKEN:
+        description: Token with read access to the private repositories the package depends on, if any.
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  foundation-linking:
+    name: Foundation linking
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    container:
+      image: ${{ inputs.container_image }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Give SwiftPM the token
+        env:
+          PACKAGES_TOKEN: ${{ secrets.PACKAGES_TOKEN }}
+        run: |
+          if [ -z "$PACKAGES_TOKEN" ]; then
+            echo 'No PACKAGES_TOKEN: the package has only public dependencies'
+            exit 0
+          fi
+          printf 'machine github.com login x-access-token password %s\n' "$PACKAGES_TOKEN" > "$HOME/.netrc"
+          chmod 600 "$HOME/.netrc"
+      - name: Install jq
+        run: apt-get -q update && apt-get -q install -y --no-install-recommends jq
+      - name: Check every library product
+        env:
+          EXCLUDED_PRODUCTS: ${{ inputs.excluded_products }}
+        run: |
+          package_path=$(pwd)
+          # A path dependency's identity is its directory's name, lowercased.
+          package_identity=$(basename "$package_path" | tr '[:upper:]' '[:lower:]')
+          tools_version=$(swift package tools-version)
+          products=$(swift package describe --type json | jq -r --arg excluded "$EXCLUDED_PRODUCTS" '
+            ($excluded | split(" ") | map(select(. != ""))) as $excluded
+            | .products[]
+            | select(.type | has("library"))
+            | select(.name as $name | $excluded | index($name) | not)
+            | .name')
+          if [ -z "$products" ]; then
+            echo '::error::The package has no library products to check'
+            exit 1
+          fi
+
+          check_path=$(mktemp -d)
+          mkdir -p "$check_path/Sources/FoundationLinkingCheck"
+          touch "$check_path/Sources/FoundationLinkingCheck/main.swift"
+          dependencies=$(jq -Rr --arg package "$package_identity" \
+            '".product(name: \"\(.)\", package: \"\($package)\"),"' <<<"$products")
+          cat > "$check_path/Package.swift" <<EOF
+          // swift-tools-version: $tools_version
+          import PackageDescription
+
+          let package = Package(
+              name: "foundation-linking-check",
+              dependencies: [.package(path: "$package_path")],
+              targets: [.executableTarget(name: "FoundationLinkingCheck", dependencies: [$dependencies])]
+          )
+          EOF
+
+          echo "Checking $(tr '\n' ' ' <<<"$products")"
+          swift build --package-path "$check_path" --configuration release
+          bin_path=$(swift build --package-path "$check_path" --configuration release --show-bin-path)
+          linkage=$(ldd "$bin_path/FoundationLinkingCheck")
+          printf '%s\n' "$linkage"
+
+          found=false
+          for library in libFoundation.so libFoundationInternationalization.so lib_FoundationICU.so; do
+            if grep -qF "$library" <<<"$linkage"; then
+              echo "::error::A library product links $library; import FoundationEssentials instead, or exclude the product"
+              found=true
+            fi
+          done
+          if [ "$found" = true ]; then
+            exit 1
+          fi
