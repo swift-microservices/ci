@@ -7,7 +7,7 @@
 #
 # Environment:
 # - CI_IMAGE: the image built for this commit.
-# - SERVICE_PRODUCT: the executable at /app/<product>.
+# - EXECUTABLE_PRODUCT: the executable at /app/<product>.
 
 set -euo pipefail
 
@@ -16,7 +16,7 @@ case "$image_user" in
   ""|root|root:*|0|0:*) echo '::error::The image must run as an unprivileged user'; exit 1 ;;
 esac
 
-if linkage=$(docker run --rm --entrypoint ldd "$CI_IMAGE" "/app/$SERVICE_PRODUCT" 2>&1); then
+if linkage=$(docker run --rm --entrypoint ldd "$CI_IMAGE" "/app/$EXECUTABLE_PRODUCT" 2>&1); then
   printf '%s\n' "$linkage"
   if [[ $linkage == *'not found'* ]]; then
     echo '::error::A runtime library is missing from the image'

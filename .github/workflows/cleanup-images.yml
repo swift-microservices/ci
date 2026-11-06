@@ -2,8 +2,10 @@
 # SPDX-License-Identifier: MIT
 # See LICENSE for license information.
 
-name: Clean up images
+name: Clean up images (deprecated)
 
+# Deprecated: call cleanup_images.yml. Kept with 0.1.0's inputs so a caller moving its pin keeps
+# working; removed in the next major release.
 on:
   workflow_call:
     inputs:
@@ -16,16 +18,11 @@ on:
         description: How many of the newest image versions to keep.
         default: 30
 
-# Permissions are inherited: callers grant packages: write.
+# Permissions are inherited from the caller, as in 0.1.0.
 jobs:
   cleanup:
     name: Delete old image versions
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - name: Keep the newest versions
-        uses: actions/delete-package-versions@e5bc658cc4c965c472efe991f8beea3981499c55  # v5.0.0
-        with:
-          package-name: ${{ inputs.package_name }}
-          package-type: container
-          min-versions-to-keep: ${{ inputs.min_versions_to_keep }}
+    uses: $/.github/workflows/cleanup_images.yml
+    with:
+      package_name: ${{ inputs.package_name }}
+      min_versions_to_keep: ${{ inputs.min_versions_to_keep }}

@@ -2,8 +2,10 @@
 # SPDX-License-Identifier: MIT
 # See LICENSE for license information.
 
-name: Build image
+name: Build image (deprecated)
 
+# Deprecated: call build_image.yml, or a service's whole CI through service.yml. Kept with 0.1.0's
+# inputs so a caller moving its pin keeps working; removed in the next major release.
 on:
   workflow_call:
     inputs:
@@ -25,62 +27,18 @@ on:
         default: false
     secrets:
       PACKAGES_TOKEN:
-        description: >-
-          Token with read access to the private repositories the package depends on, passed as
-          the `netrc` build secret.
+        description: Token with read access to the private repositories the package depends on.
         required: false
 
-# Permissions are inherited: pull request callers grant contents: read; publishing callers also
-# grant packages: write.
+# Permissions are inherited from the caller, as in 0.1.0.
 jobs:
   image:
     name: Build and validate image
-    runs-on: ubuntu-24.04-arm
-    timeout-minutes: 120
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
-        with:
-          persist-credentials: false
-      - name: Find this repository's scripts
-        id: scripts
-        uses: $/.github/actions/scripts
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069  # v4.4.1
-      - name: Build release image
-        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc  # v7.4.0
-        with:
-          context: .
-          file: Containerfile
-          target: ${{ inputs.build_target }}
-          platforms: linux/arm64
-          load: true
-          push: false
-          tags: service-ci:${{ github.sha }}
-          labels: org.opencontainers.image.revision=${{ github.sha }}
-          cache-from: type=gha,scope=service-image
-          cache-to: type=gha,scope=service-image,mode=max
-          # Mounted by the Containerfile for `swift package resolve` only; it never enters a layer.
-          secrets: >-
-            ${{ secrets.PACKAGES_TOKEN != '' &&
-            format('netrc=machine github.com login x-access-token password {0}', secrets.PACKAGES_TOKEN) || '' }}
-      - name: Check the user and runtime libraries
-        env:
-          CI_IMAGE: service-ci:${{ github.sha }}
-          SERVICE_PRODUCT: ${{ inputs.service_product }}
-          SCRIPTS: ${{ steps.scripts.outputs.directory }}
-        run: bash "$SCRIPTS/check-image.sh"
-      - name: Log in to GitHub Container Registry
-        if: ${{ inputs.publish }}
-        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6  # v4.7.0
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Publish the image
-        if: ${{ inputs.publish }}
-        env:
-          CI_IMAGE: service-ci:${{ github.sha }}
-          IMAGE_REPOSITORY: ${{ inputs.image_repository }}
-          SCRIPTS: ${{ steps.scripts.outputs.directory }}
-        run: bash "$SCRIPTS/publish-image.sh"
+    uses: $/.github/workflows/build_image.yml
+    with:
+      executable_product: ${{ inputs.service_product }}
+      image_repository: ${{ inputs.image_repository }}
+      containerfile_target: ${{ inputs.build_target }}
+      publish: ${{ inputs.publish }}
+    secrets:
+      PACKAGES_TOKEN: ${{ secrets.PACKAGES_TOKEN }}

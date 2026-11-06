@@ -1,0 +1,75 @@
+# Copyright (c) 2026 Zaid Rahhawi
+# SPDX-License-Identifier: MIT
+# See LICENSE for license information.
+
+name: Deploy to Dokploy
+
+# Deploys a commit's image to each Dokploy application of an environment, in order, and waits for
+# each. Production takes only a commit whose push to main deployed it to staging, which this
+# workflow's job name, Deploy staging, records.
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        type: string
+        description: staging or production.
+        required: true
+      commit:
+        type: string
+        description: Commit whose image to deploy; empty means the commit the run is for, the latest on main.
+        default: ""
+      image_repository:
+        type: string
+        description: Where build_image.yml published the image, such as ghcr.io/<owner>/<repository>.
+        required: true
+      application_ids:
+        type: string
+        description: >-
+          The IDs of the Dokploy applications that run the image in this environment, in deploy
+          order (JSON list).
+        required: true
+    secrets:
+      DOKPLOY_URL:
+        required: true
+      DOKPLOY_TOKEN:
+        required: true
+
+# Permissions are inherited: callers grant contents: read, actions: read, and packages: read.
+jobs:
+  deploy:
+    name: Deploy ${{ inputs.environment }}
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 60
+    concurrency:
+      group: deploy-${{ inputs.environment }}
+      cancel-in-progress: false
+    steps:
+      - name: Find this repository's scripts
+        id: scripts
+        uses: $/.github/actions/scripts
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6  # v4.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Resolve the commit's image
+        id: resolve
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COMMIT: ${{ inputs.commit || github.sha }}
+          TARGET_ENVIRONMENT: ${{ inputs.environment }}
+          IMAGE_REPOSITORY: ${{ inputs.image_repository }}
+          SCRIPTS: ${{ steps.scripts.outputs.directory }}
+        run: bash "$SCRIPTS/resolve-image.sh"
+      - name: Deploy each Dokploy application in order
+        env:
+          DOKPLOY_URL: ${{ secrets.DOKPLOY_URL }}
+          DOKPLOY_TOKEN: ${{ secrets.DOKPLOY_TOKEN }}
+          APPLICATION_IDS: ${{ inputs.application_ids }}
+          IMAGE: ${{ steps.resolve.outputs.image }}
+          COMMIT: ${{ steps.resolve.outputs.commit }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          SCRIPTS: ${{ steps.scripts.outputs.directory }}
+        run: bash "$SCRIPTS/deploy-dokploy.sh"
