@@ -16,14 +16,14 @@ moves.
 | `deploy_dokploy.yml` | `ci.yml` (staging) and `deploy.yml` (production) | A commit's image on Dokploy; production only for a commit staging ran |
 | `cleanup_images.yml` | `cleanup_images.yml` | Keeps the newest versions of a container package (30 by default) |
 | `pull_request_label.yml` | `pull_request_label.yml` | Exactly one semver label on a library's pull request |
-| `release.yml` | `release.yml` | A library's next release, from the merged pull requests' labels |
+| `release.yml` | `release.yml` | A library's next minor or patch release, from the merged pull requests' labels; a major release is created by hand |
 
 `library.yml` and `service.yml` are the CI pipelines. They call the building blocks below, which a
 repository with an unusual need can call too:
 
 | Workflow | Does |
 | --- | --- |
-| `tests.yml` | swiftlang's `swift_package_test.yml` Linux job, with the same inputs, for a package that needs private dependencies or a Postgres, which swiftlang's workflow can't give |
+| `tests.yml` | swiftlang's `swift_package_test.yml` Linux job, with its input names and formats plus `postgres_image`, for a package that needs private dependencies or a Postgres, which swiftlang's workflow can't give |
 | `foundation_linking.yml` | Builds an empty executable that links every library product, and each executable product `executable_products` names, and fails when one links Foundation's full library or ICU; `excluded_products` names the products it skips |
 | `build_image.yml` | Builds the `Containerfile` for linux/arm64 and checks it runs as an unprivileged user and links every runtime library; with `publish: true` on `main`, pushes it once as `:<commit-sha>` |
 
@@ -81,7 +81,8 @@ jobs:
     name: CI
     uses: swift-microservices/ci/.github/workflows/library.yml@<commit>  # <release>
     with:
-      foundation_linking_check_excluded_products: <Org>Persistence
+      api_breakage_check_enabled: true  # from the library's 1.0.0
+      foundation_linking_check_excluded_products: '["<Org>Persistence"]'
 ```
 
 ```yaml
@@ -244,12 +245,12 @@ To put an older commit back on staging, re-run the Staging job of that commit's 
 
 ## Requirements
 
-- **Secrets**, as repository secrets of each service:
+- **Secrets**, as repository secrets:
   - `PACKAGES_TOKEN`, only with private dependencies: a fine-grained token whose resource owner is
     the organization, limited to the private package repositories, with Contents read-only. It's a
     Dependabot secret too, since a Dependabot pull request reads only those.
-  - `DOKPLOY_URL` and `DOKPLOY_TOKEN`, a Dokploy API key that can read, update, and deploy the
-    applications.
+  - `DOKPLOY_URL` and `DOKPLOY_TOKEN`, for a service: Dokploy's URL and an API key that can read,
+    update, and deploy the applications.
 - **Containerfile**, only with private dependencies: resolve with the secret mounted, so the token
   never enters a layer:
 
@@ -263,6 +264,14 @@ To put an older commit back on staging, re-run the Staging job of that commit's 
   migrations first in `application_ids`.
 - **Migrations** are expand/contract: the previous image must run on the current schema, because a
   rollback redeploys it.
+
+## Versioning
+
+The workflow file names, their inputs and secrets, and the `Deploy <environment>` job name are this
+repository's API. Renaming or removing one is a major release, after a release that keeps the old
+name as a deprecated alias. Changing what a pipeline checks or builds with, such as its toolchain or
+a flag, is a minor release: each repository adopts it through its own Dependabot pull request,
+whose CI shows what it breaks.
 
 ## License
 

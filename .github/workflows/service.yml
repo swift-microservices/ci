@@ -39,9 +39,9 @@ on:
       foundation_linking_check_excluded_products:
         type: string
         description: >-
-          executable_product while it links Foundation through a dependency, so the Foundation
-          linking check skips it; removing it checks it again.
-        default: ""
+          Products the Foundation linking check skips while they link Foundation through a
+          dependency, usually executable_product (JSON list); removing one checks it again.
+        default: "[]"
     secrets:
       PACKAGES_TOKEN:
         description: Token with read access to the private repositories the package depends on, if any.
@@ -105,7 +105,7 @@ jobs:
     uses: $/.github/workflows/foundation_linking.yml
     with:
       container_image: swift:${{ needs.setup.outputs.swift_version }}-noble
-      executable_products: ${{ inputs.executable_product }}
+      executable_products: ${{ format('["{0}"]', inputs.executable_product) }}
       excluded_products: ${{ inputs.foundation_linking_check_excluded_products }}
     secrets:
       PACKAGES_TOKEN: ${{ secrets.PACKAGES_TOKEN }}

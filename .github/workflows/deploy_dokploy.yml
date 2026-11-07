@@ -31,8 +31,10 @@ on:
         required: true
     secrets:
       DOKPLOY_URL:
+        description: The Dokploy instance's URL, such as https://dokploy.example.com.
         required: true
       DOKPLOY_TOKEN:
+        description: A Dokploy API key that can read, update, and deploy the applications.
         required: true
 
 # Permissions are inherited: callers grant contents: read, actions: read, and packages: read.
