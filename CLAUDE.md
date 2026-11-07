@@ -54,7 +54,9 @@ specific to these workflows. Read it before adding or changing one.
 - This repository's own pull requests reuse swiftlang's `soundness.yml` (YAML lint, license
   headers, unacceptable language, broken symlinks) and add only actionlint, which swiftlang lacks,
   to check every workflow and the shell in its `run:` steps.
-- A list input is a JSON list, as in swiftlang's workflows (`'["6.3"]'`, `'["app-id"]'`).
+- A list input is a JSON list, as in swiftlang's workflows (`'["6.3"]'`, `'["app-id"]'`). An
+  input that passes straight through to one of swiftlang's keeps its format too, so
+  `docs_check_targets` stays space-separated like `soundness.yml`'s.
 
 ## What the workflows assume
 

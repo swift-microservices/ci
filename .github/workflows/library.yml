@@ -55,8 +55,8 @@ on:
         type: string
         description: >-
           Library products the Foundation linking check skips while they link Foundation through a
-          dependency (space-separated); removing one checks it again.
-        default: ""
+          dependency (JSON list); removing one checks it again.
+        default: "[]"
       postgres_image:
         type: string
         description: Postgres image started beside the tests, such as postgres:<major>-alpine; empty starts none.

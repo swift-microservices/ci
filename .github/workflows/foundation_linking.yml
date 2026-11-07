@@ -20,12 +20,12 @@ on:
         type: string
         description: >-
           Products, library or executable, that still link Foundation through a dependency
-          (space-separated). They aren't checked; removing one from the list checks it again.
-        default: ""
+          (JSON list). They aren't checked; removing one from the list checks it again.
+        default: "[]"
       executable_products:
         type: string
-        description: Executable products to check as well, such as a service's (space-separated).
-        default: ""
+        description: Executable products to check as well, such as a service's (JSON list).
+        default: "[]"
     secrets:
       PACKAGES_TOKEN:
         description: Token with read access to the private repositories the package depends on, if any.
@@ -59,7 +59,7 @@ jobs:
         run: bash "$SCRIPTS/configure-netrc.sh"
       - name: Check the products
         env:
-          EXCLUDED_PRODUCTS: ${{ inputs.excluded_products }}
-          EXECUTABLE_PRODUCTS: ${{ inputs.executable_products }}
+          EXCLUDED_PRODUCTS: ${{ join(fromJSON(inputs.excluded_products), ' ') }}
+          EXECUTABLE_PRODUCTS: ${{ join(fromJSON(inputs.executable_products), ' ') }}
           SCRIPTS: ${{ steps.scripts.outputs.directory }}
         run: bash "$SCRIPTS/check-foundation-linking.sh"

@@ -82,7 +82,7 @@ jobs:
     uses: swift-microservices/ci/.github/workflows/library.yml@<commit>  # <release>
     with:
       api_breakage_check_enabled: true  # from the library's 1.0.0
-      foundation_linking_check_excluded_products: <Org>Persistence
+      foundation_linking_check_excluded_products: '["<Org>Persistence"]'
 ```
 
 ```yaml
