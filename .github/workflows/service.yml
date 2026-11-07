@@ -39,8 +39,8 @@ on:
       foundation_linking_check_excluded_products:
         type: string
         description: >-
-          executable_product while it links Foundation through a dependency, so the Foundation
-          linking check skips it; removing it checks it again.
+          Products the Foundation linking check skips while they link Foundation through a
+          dependency, usually executable_product (space-separated); removing one checks it again.
         default: ""
     secrets:
       PACKAGES_TOKEN:
