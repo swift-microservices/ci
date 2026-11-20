@@ -45,8 +45,11 @@ specific to these workflows. Read it before adding or changing one.
     `linux_build_command`, `swift_flags`, `swift_nightly_flags`) and adds only `postgres_image`, so
     a package moves between the two by changing `uses:`, `secrets:`, and that input. Remove it if
     swiftlang gains both.
-  - `foundation_linking.yml`, `build_image.yml`, `deploy_dokploy.yml`, and `cleanup_images.yml`
-    have no swiftlang counterpart.
+  - `foundation_linking.yml`, `build_image.yml`, `deploy_dokploy.yml`, `attest_image.yml`, and
+    `cleanup_images.yml` have no swiftlang counterpart.
+  - `attest_image.yml` is a workflow of its own, not an input to `service.yml`: signing needs
+    `id-token: write` and `attestations: write`, and a nested job's permissions can't depend on an
+    input, so a service opts in with a job that grants them.
   - `library.yml`'s Protobuf job has none either; it runs `bufbuild/buf-action` with lint and
     breaking only, against the pull request's base in the local clone (`.git#ref=<base sha>`),
     since the action's default baseline clones the repository by URL, which a private
@@ -85,7 +88,9 @@ specific to these workflows. Read it before adding or changing one.
   an application across nodes must run one on the server Dokploy deploys from.
 - **Images.** A `Containerfile` at the repository root builds a linux/arm64 image that runs as an
   unprivileged user and has the product at `/app/<product>`, with every runtime library it links.
-  The image is not started in CI; staging is where a release first runs.
+  The image is not started in CI; staging is where a release first runs. Every build keeps the
+  image's SPDX SBOM as a workflow artifact (`anchore/sbom-action`) and scans it with
+  `anchore/scan-action`, failing only on a critical vulnerability with a fixed version.
 - **Private packages.** `PACKAGES_TOKEN` reads the private repositories a package depends on.
   `tests.yml` and `foundation_linking.yml` write it to `~/.netrc` when it's given; `build_image.yml`
   passes it as the `netrc` build secret, which the Containerfile mounts for `swift package resolve`

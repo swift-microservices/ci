@@ -14,6 +14,7 @@ moves.
 | `library.yml` | `ci.yml` | Pull request: Soundness, Tests, Foundation linking, and Protobuf with `protobuf_check_enabled`. Push or schedule: Tests, Foundation linking |
 | `service.yml` | `ci.yml` | Pull request: Soundness, Tests, Foundation linking, Build image. Push to `main`: Tests and Foundation linking, then Publish image as `:<commit-sha>` |
 | `deploy_dokploy.yml` | `ci.yml` (staging) and `deploy.yml` (production) | A commit's image on Dokploy; production only for a commit staging ran |
+| `attest_image.yml` | `ci.yml`, optionally | Signs the build provenance of a commit's published image and pushes the attestation beside it |
 | `cleanup_images.yml` | `cleanup_images.yml` | Keeps the newest versions of a container package (30 by default) |
 | `pull_request_label.yml` | `pull_request_label.yml` | Exactly one semver label on a library's pull request |
 | `release.yml` | `release.yml` | A library's next minor or patch release, from the merged pull requests' labels; a major release is created by hand |
@@ -25,7 +26,7 @@ repository with an unusual need can call too:
 | --- | --- |
 | `tests.yml` | swiftlang's `swift_package_test.yml` Linux job, with its input names and formats plus `postgres_image`, for a package that needs private dependencies or a Postgres, which swiftlang's workflow can't give |
 | `foundation_linking.yml` | Builds an empty executable that links every library product, and each executable product `executable_products` names, and fails when one links Foundation's full library or ICU; `excluded_products` names the products it skips |
-| `build_image.yml` | Builds the `Containerfile` for linux/arm64 and checks it runs as an unprivileged user and links every runtime library; with `publish: true` on `main`, pushes it once as `:<commit-sha>` |
+| `build_image.yml` | Builds the `Containerfile` for linux/arm64 and checks it runs as an unprivileged user and links every runtime library; keeps its SBOM as an artifact and fails on a critical vulnerability that has a fix; with `publish: true` on `main`, pushes it once as `:<commit-sha>` |
 
 ### Deployment adapters
 
@@ -186,6 +187,20 @@ jobs:
     secrets:
       DOKPLOY_URL: ${{ secrets.DOKPLOY_URL }}
       DOKPLOY_TOKEN: ${{ secrets.DOKPLOY_TOKEN }}
+
+  # Optional: signed build provenance for each published image.
+  attest:
+    name: Attest
+    needs: [ci]
+    if: github.event_name == 'push'
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    uses: swift-microservices/ci/.github/workflows/attest_image.yml@<commit>  # <release>
+    with:
+      image_repository: ghcr.io/<owner>/<repository>
 ```
 
 ```yaml
