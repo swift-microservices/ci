@@ -3,7 +3,8 @@
 ## SPDX-License-Identifier: MIT
 ## See LICENSE for license information.
 
-# Deploys an image to each Dokploy application in order and waits for each to finish.
+# Deploys an image to each Dokploy application in order and waits for each to finish and for a
+# container of the image to run, healthy when it has a health check, before the next.
 #
 # Environment:
 # - DOKPLOY_URL, DOKPLOY_TOKEN: the Dokploy instance and an API key that can read, update and deploy.
@@ -42,14 +43,41 @@ while read -r id; do
   ids+=("$id")
 done < <(jq -r '.[]' <<<"$APPLICATION_IDS")
 names=()
+app_names=()
+server_ids=()
 for id in "${ids[@]}"; do
-  name=$(dokploy "application.one?applicationId=$id" 2>/dev/null | jq -r '.name // empty' 2>/dev/null) || true
-  if [ -z "$name" ]; then
+  application=$(dokploy "application.one?applicationId=$id" 2>/dev/null) || application='{}'
+  name=$(jq -r '.name // empty' <<<"$application" 2>/dev/null) || true
+  app_name=$(jq -r '.appName // empty' <<<"$application" 2>/dev/null) || true
+  if [ -z "$name" ] || [ -z "$app_name" ]; then
     echo "::error::Dokploy has no application $id that this token can read"
     exit 1
   fi
   names+=("$name")
+  app_names+=("$app_name")
+  server_ids+=("$(jq -r '.serverId // empty' <<<"$application")")
 done
+
+digest=${IMAGE##*@}
+# Prints the best state of the application's containers that run the deployed image: healthy, or
+# running for one without a health check, else what Docker reports, or nothing when none runs yet.
+container_state() {
+  local app_name=$1 server_id=$2 containers container_id config state best=""
+  containers=$(dokploy "docker.getContainersByAppNameMatch?appName=$app_name${server_id:+&serverId=$server_id}") || return 0
+  while read -r container_id; do
+    config=$(dokploy "docker.getConfig?containerId=$container_id${server_id:+&serverId=$server_id}") || continue
+    state=$(jq -r --arg digest "$digest" \
+      'select((.Config.Image // "") | endswith("@" + $digest))
+        | if .State.Running then (.State.Health.Status // "running") else (.State.Status // "stopped") end' \
+      <<<"$config")
+    case "$state" in
+      healthy|running) echo "$state"; return 0 ;;
+      "") ;;
+      *) best=$state ;;
+    esac
+  done < <(jq -r '.[]? | select(.state == "running") | .containerId' <<<"$containers")
+  echo "$best"
+}
 
 # One application at a time; a failure leaves the rest on their current image.
 for i in "${!ids[@]}"; do
@@ -107,6 +135,26 @@ for i in "${!ids[@]}"; do
     echo "::error::Dokploy's deployment of $name did not finish within 15 minutes"
     exit 1
   fi
+
+  # A finished deployment has only handed the image to Docker. The next application waits until a
+  # container of this image runs, and passes its health check when it has one, so an application
+  # listed first, such as the one that migrates the database, is serving before the rest start.
+  deadline=$((SECONDS + 600))
+  state=""
+  while [ "$SECONDS" -lt "$deadline" ]; do
+    state=$(container_state "${app_names[i]}" "${server_ids[i]}")
+    case "$state" in
+      healthy|running) break ;;
+    esac
+    sleep 5
+  done
+  case "$state" in
+    healthy|running) echo "$name is $state" ;;
+    *)
+      echo "::error::No container of $name ran the image healthy within 10 minutes (last state: ${state:-none})"
+      exit 1
+      ;;
+  esac
   echo "$name runs $IMAGE"
   echo "::endgroup::"
 done

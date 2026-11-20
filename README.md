@@ -254,7 +254,7 @@ To put an older commit back on staging, re-run the Staging job of that commit's 
     the organization, limited to the private package repositories, with Contents read-only. It's a
     Dependabot secret too, since a Dependabot pull request reads only those.
   - `DOKPLOY_URL` and `DOKPLOY_TOKEN`, for a service: Dokploy's URL and an API key that can read,
-    update, and deploy the applications.
+    update, and deploy the applications, and read their containers.
 - **Containerfile**, only with private dependencies: resolve with the secret mounted, so the token
   never enters a layer:
 
@@ -265,7 +265,9 @@ To put an older commit back on staging, re-run the Staging job of that commit's 
   A local build passes `--secret id=netrc,src=$HOME/.netrc`.
 - **Dokploy**: each application uses the Docker provider with the registry's credentials and
   auto-deploy off, so only these workflows change what runs. List the application that runs
-  migrations first in `application_ids`.
+  migrations first in `application_ids`. Each application waits for the one before it to run the
+  new image, and to pass its health check when Dokploy gives it one, so a serving application's
+  health check is what holds the rest back until migrations are applied.
 - **Migrations** are expand/contract: the previous image must run on the current schema, because a
   rollback redeploys it.
 
