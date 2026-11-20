@@ -1,0 +1,47 @@
+# Copyright (c) 2026 Zaid Rahhawi
+# SPDX-License-Identifier: MIT
+# See LICENSE for license information.
+
+name: Attest image
+
+# Signs the build provenance of a commit's published image and pushes the attestation to the registry
+# beside it, so anyone pulling the image can verify which repository, commit and workflow built it
+# (`gh attestation verify oci://<image> --owner <owner>`). A service opts in by calling it after
+# service.yml on a push to main; the job that calls it grants contents: read, packages: write,
+# id-token: write and attestations: write.
+
+on:
+  workflow_call:
+    inputs:
+      image_repository:
+        type: string
+        description: Where service.yml published the image, such as ghcr.io/<owner>/<repository>.
+        required: true
+
+jobs:
+  attest:
+    name: Attest image
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Find this repository's scripts
+        id: scripts
+        uses: $/.github/actions/scripts
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550  # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Find the image's digest
+        id: image
+        env:
+          IMAGE_REPOSITORY: ${{ inputs.image_repository }}
+          SCRIPTS: ${{ steps.scripts.outputs.directory }}
+        run: bash "$SCRIPTS/image-digest.sh"
+      - name: Attest the build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8  # v4.2.2
+        with:
+          subject-name: ${{ inputs.image_repository }}
+          subject-digest: ${{ steps.image.outputs.digest }}
+          push-to-registry: true
