@@ -47,6 +47,10 @@ specific to these workflows. Read it before adding or changing one.
     swiftlang gains both.
   - `foundation_linking.yml`, `build_image.yml`, `deploy_dokploy.yml`, and `cleanup_images.yml`
     have no swiftlang counterpart.
+  - `library.yml`'s Protobuf job has none either; it runs `bufbuild/buf-action` with lint and
+    breaking only, against the pull request's base in the local clone (`.git#ref=<base sha>`),
+    since the action's default baseline clones the repository by URL, which a private
+    repository's checkout without persisted credentials can't.
 - Inside a workflow, prefer a maintained action to shell: `actions/checkout`,
   `docker/setup-buildx-action`, `docker/build-push-action`, `docker/login-action`,
   `actions/delete-package-versions`. Shell is for what no action does well: the Foundation
