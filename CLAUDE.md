@@ -71,10 +71,14 @@ specific to these workflows. Read it before adding or changing one.
 - **Dokploy.** Applications use the Docker provider with registry credentials and auto-deploy off.
   `deploy_dokploy.yml` checks that every ID in `application_ids` names an application before changing any,
   then, one at a time in the listed order, sets the image, requests a deployment titled with the
-  short commit, and waits up to 15 minutes for a deployment newer than the one before the request
-  to be `done`. `error`, `cancelled`, or the timeout fails the run and leaves the rest untouched.
-  It is written against Dokploy's API (`application.one`, `application.update`,
-  `application.deploy`, `deployment.allByType`) with the `x-api-key` header.
+  short commit, waits up to 15 minutes for a deployment newer than the one before the request
+  to be `done`, then up to 10 minutes for a container of the deployed digest to run, healthy when
+  it has a health check. `error`, `cancelled`, or no such container within the time fails the run
+  and leaves the rest untouched. It is written against Dokploy's API (`application.one`,
+  `application.update`, `application.deploy`, `deployment.allByType`,
+  `docker.getContainersByAppNameMatch`, `docker.getConfig`) with the `x-api-key` header. Docker's
+  `ps` and `inspect` see only the containers on the application's server, so a Swarm that spreads
+  an application across nodes must run one on the server Dokploy deploys from.
 - **Images.** A `Containerfile` at the repository root builds a linux/arm64 image that runs as an
   unprivileged user and has the product at `/app/<product>`, with every runtime library it links.
   The image is not started in CI; staging is where a release first runs.
