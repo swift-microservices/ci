@@ -16,7 +16,8 @@ specific to these workflows. Read it before adding or changing one.
 - A CI pipeline holds the standard: which jobs run on which event, the default platforms, and the
   strict flags. Its inputs cover only what differs between repositories (platforms, products,
   Postgres, Valkey, docs targets); what it can read from the repository, it reads: the toolchain from
-  `swift-tools-version`, private dependencies from a passed `PACKAGES_TOKEN`.
+  `swift-tools-version`, private dependencies from a passed `PACKAGES_TOKEN`, and the Protobuf check
+  from a `buf.yaml` at the root.
 - Deployment isn't part of a CI pipeline: `service.yml` ends at a published image, and a
   deployment adapter, `deploy_dokploy.yml`, deploys it. Another platform is another
   `deploy_<platform>.yml` with the same inputs where they apply and the same `Deploy <environment>`
@@ -51,9 +52,10 @@ specific to these workflows. Read it before adding or changing one.
     `id-token: write` and `attestations: write`, and a nested job's permissions can't depend on an
     input, so a service opts in with a job that grants them.
   - `library.yml`'s Protobuf job has none either; it runs `bufbuild/buf-action` with lint and
-    breaking only, against the pull request's base in the local clone (`.git#ref=<base sha>`),
-    since the action's default baseline clones the repository by URL, which a private
-    repository's checkout without persisted credentials can't.
+    breaking only, when `buf.yaml` is at the root, against the pull request's base in the local
+    clone (`.git#ref=<base sha>`), since the action's default baseline clones the repository by
+    URL, which a private repository's checkout without persisted credentials can't. Its `version`
+    pins buf's CLI, which Dependabot doesn't read, so it's raised by hand, like actionlint's.
   - `service.yml`'s OpenAPI breakage job has none either; it runs
     `oasdiff/oasdiff-action/breaking` with `fail-on: ERR` against the pull request's base in the
     local clone (`<base sha>:<path>`), for the same reason. `review: false` and an empty

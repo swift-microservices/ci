@@ -11,7 +11,7 @@ moves.
 
 | Workflow | A repository calls it from | Runs |
 | --- | --- | --- |
-| `library.yml` | `ci.yml` | Pull request: Soundness, Tests, Foundation linking, and Protobuf with `protobuf_check_enabled`. Push or schedule: Tests, Foundation linking |
+| `library.yml` | `ci.yml` | Pull request: Soundness, Tests, Foundation linking, and Protobuf when `buf.yaml` is at the root. Push or schedule: Tests, Foundation linking |
 | `service.yml` | `ci.yml` | Pull request: Soundness, Tests, Foundation linking, Build image, and OpenAPI breakage with `openapi_breakage_check_path`. Push to `main`: Tests and Foundation linking, then Publish image as `:<commit-sha>` |
 | `deploy_dokploy.yml` | `ci.yml` (staging) and `deploy.yml` (production) | A commit's image on Dokploy, one application after another, each running or, when it runs to completion, exited 0 before the next; production only for a commit staging ran |
 | `attest_image.yml` | `ci.yml`, optionally | Signs the build provenance of a commit's published image and pushes the attestation beside it |
@@ -51,10 +51,10 @@ adapter; another platform adds `deploy_<platform>.yml` with the same inputs wher
   never blocks a deploy or a hotfix.
 - Foundation linking always runs. `foundation_linking_check_excluded_products` names the products
   that still link Foundation through a dependency; removing one checks it again.
-- A package of `.proto` files sets `protobuf_check_enabled: true` and declares `buf.yaml` at its
-  root, listing each module and the lint and breaking rules. On a pull request, buf lints the
-  files and compares them with the base commit, since the Swift API breakage check can't see a
-  renumbered field or a reused tag.
+- A package of `.proto` files declares `buf.yaml` at its root, listing each module and the lint
+  and breaking rules; the pipeline reads it, so there's no input for it. On a pull request, buf
+  lints the files and compares them with the base commit, since the Swift API breakage check can't
+  see a renumbered field or a reused tag.
 - A service that serves an OpenAPI document, such as a gateway, names it in
   `openapi_breakage_check_path`. On a pull request, oasdiff compares it with the base commit and
   fails on a change it rates `ERR`, a definite break for a client of the previous document, such as
