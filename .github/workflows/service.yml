@@ -36,6 +36,10 @@ on:
         type: string
         description: Postgres image started beside the tests, such as postgres:<major>-alpine; empty starts none.
         default: ""
+      valkey_image:
+        type: string
+        description: Valkey image started beside the tests, such as valkey/valkey:<major>-alpine; empty starts none.
+        default: ""
       foundation_linking_check_excluded_products:
         type: string
         description: >-
@@ -96,6 +100,7 @@ jobs:
       linux_build_command: swift test --disable-automatic-resolution
       swift_flags: -Xswiftc -warnings-as-errors --explicit-target-dependency-import-check error
       postgres_image: ${{ inputs.postgres_image }}
+      valkey_image: ${{ inputs.valkey_image }}
     secrets:
       PACKAGES_TOKEN: ${{ secrets.PACKAGES_TOKEN }}
 

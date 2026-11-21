@@ -15,7 +15,7 @@ specific to these workflows. Read it before adding or changing one.
   moves.
 - A CI pipeline holds the standard: which jobs run on which event, the default platforms, and the
   strict flags. Its inputs cover only what differs between repositories (platforms, products,
-  Postgres, docs targets); what it can read from the repository, it reads: the toolchain from
+  Postgres, Valkey, docs targets); what it can read from the repository, it reads: the toolchain from
   `swift-tools-version`, private dependencies from a passed `PACKAGES_TOKEN`.
 - Deployment isn't part of a CI pipeline: `service.yml` ends at a published image, and a
   deployment adapter, `deploy_dokploy.yml`, deploys it. Another platform is another
@@ -38,13 +38,13 @@ specific to these workflows. Read it before adding or changing one.
   copies them.
 - A workflow belongs here only when swiftlang has none for the job, or has one that cannot do it:
   - `tests.yml` is `swift_package_test.yml`'s Linux job for a package with private dependencies
-    or Postgres tests. swiftlang's workflow takes no secrets, so it cannot fetch private
+    or Postgres or Valkey tests. swiftlang's workflow takes no secrets, so it cannot fetch private
     dependencies ([swiftlang/github-workflows#59](https://github.com/swiftlang/github-workflows/issues/59)),
     and starts no service containers. It keeps swiftlang's input names and formats
     (`linux_swift_versions`, `linux_os_versions`, `linux_host_archs`, `linux_pre_build_command`,
-    `linux_build_command`, `swift_flags`, `swift_nightly_flags`) and adds only `postgres_image`, so
-    a package moves between the two by changing `uses:`, `secrets:`, and that input. Remove it if
-    swiftlang gains both.
+    `linux_build_command`, `swift_flags`, `swift_nightly_flags`) and adds only `postgres_image`
+    and `valkey_image`, so a package moves between the two by changing `uses:`, `secrets:`, and
+    those inputs. Remove it if swiftlang gains secrets and service containers.
   - `foundation_linking.yml`, `build_image.yml`, `deploy_dokploy.yml`, `attest_image.yml`, and
     `cleanup_images.yml` have no swiftlang counterpart.
   - `attest_image.yml` is a workflow of its own, not an input to `service.yml`: signing needs
@@ -98,7 +98,10 @@ specific to these workflows. Read it before adding or changing one.
 - **Postgres.** With `postgres_image` set, `tests.yml` starts it as the `postgres` service, with
   user, password, and database `postgres`, and sets `POSTGRES_HOST`, `POSTGRES_PORT`,
   `POSTGRES_USER`, `POSTGRES_PASSWORD`, and `POSTGRES_DB` for the tests. Without it, it starts
-  nothing and leaves them unset, so a test that checks for `POSTGRES_HOST` skips.
+  nothing and leaves them unset.
+- **Valkey.** With `valkey_image` set, `tests.yml` starts it as the `valkey` service, without TLS
+  or a password, and sets `VALKEY_HOST` and `VALKEY_PORT` for the tests. Without it, it starts
+  nothing and leaves them unset.
 - **Foundation linking.** A library product, and an executable product `executable_products`
   names, links neither `libFoundation`, `libFoundationInternationalization`, nor `lib_FoundationICU`,
   unless `excluded_products` names it. Builds are dynamic, since `ldd` sees
