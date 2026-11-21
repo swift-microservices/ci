@@ -30,6 +30,10 @@ specific to these workflows. Read it before adding or changing one.
 - Changing a pipeline's behavior, such as its toolchain or a check, is a minor release: each
   repository adopts it through its own Dependabot pull request, whose CI shows what it breaks.
   Removing or renaming an input is a major release.
+- A deployment adapter runs only on a push or by hand, so a caller's Dependabot pull request can't
+  show what its change breaks. Whatever a change newly requires of a caller, such as a key's
+  permission or a platform setting, the adapter checks before changing anything, with an error that
+  names it.
 
 ## Reuse first
 
@@ -82,10 +86,12 @@ specific to these workflows. Read it before adding or changing one.
   ends in `Deploy staging` in a push run of that commit, which is `deploy_dokploy.yml`'s own job
   name for staging. Deploying an older commit is the rollback; nothing is rebuilt.
 - **Dokploy.** Applications use the Docker provider with registry credentials and auto-deploy off.
-  `deploy_dokploy.yml` checks that every ID in `application_ids` names an application before changing any,
-  then, one at a time in the listed order, sets the image, requests a deployment titled with the
-  short commit, waits up to 15 minutes for a deployment newer than the one before the request
-  to be `done`, then up to 10 minutes for a container of the deployed digest to run, healthy when
+  Before changing any, `deploy_dokploy.yml` checks that every ID in `application_ids` names an
+  application whose containers the key can read, and that each one
+  `run_to_completion_application_ids` lists has a restart policy whose condition is `none` and an
+  update config whose failure action is `continue`. Then, one at a time in the listed order, it
+  sets the image, requests a deployment titled with the short commit, waits up to 15 minutes for a
+  deployment newer than the one before the request to be `done`, then up to 10 minutes for a container of the deployed digest to run, healthy when
   it has a health check. An application `run_to_completion_application_ids` lists waits instead
   for its newest container of the digest, among those that didn't exist before the request, to
   exit; exit code 0 moves on. `error`, `cancelled`, another exit code, or no such container within

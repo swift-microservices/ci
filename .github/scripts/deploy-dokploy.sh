@@ -9,7 +9,8 @@
 # exit, and only exit code 0 moves on.
 #
 # Environment:
-# - DOKPLOY_URL, DOKPLOY_TOKEN: the Dokploy instance and an API key that can read, update and deploy.
+# - DOKPLOY_URL, DOKPLOY_TOKEN: the Dokploy instance and an API key that can read, update and deploy
+#   the applications and read their containers.
 # - APPLICATION_IDS: the applications, in deploy order (JSON list).
 # - RUN_TO_COMPLETION_APPLICATION_IDS: those of them whose command exits (JSON list).
 # - IMAGE: the image by tag and digest.
@@ -35,7 +36,9 @@ newest_deployment() {
   dokploy "deployment.allByType?id=$1&type=application" | jq -c '.[0] // {}'
 }
 
-# Every ID must name an application before any of them changes.
+# Every ID must name an application this key can deploy and wait for before any of them changes:
+# a caller's Dependabot pull request never runs a deploy, so what a new release requires of Dokploy
+# shows here first.
 if ! jq -e 'type == "array" and length > 0 and all(.[]; type == "string" and length > 0)' \
   <<<"$APPLICATION_IDS" > /dev/null 2>&1; then
   echo '::error::application_ids must be a non-empty JSON list of application IDs'
@@ -63,10 +66,29 @@ for id in "${ids[@]}"; do
     echo "::error::Dokploy has no application $id that this token can read"
     exit 1
   fi
+  server_id=$(jq -r '.serverId // empty' <<<"$application")
+  # Every wait reads the application's containers; without access to Docker, the key would change
+  # the first application and then time out waiting for it.
+  if ! dokploy "docker.getContainersByAppNameMatch?appName=$app_name${server_id:+&serverId=$server_id}" > /dev/null; then
+    echo "::error::This Dokploy API key can't read the containers of $name; it needs access to Docker"
+    exit 1
+  fi
+  complete=$(jq -r --arg id "$id" 'any(.[]; . == $id)' <<<"$RUN_TO_COMPLETION_APPLICATION_IDS")
+  # Swarm restarts an exited container under any restart condition but none, Docker's default being
+  # any, and Dokploy's default update config rolls back a task that exits within the monitor period.
+  if [ "$complete" = true ]; then
+    condition=$(jq -r '.restartPolicySwarm.Condition // "any"' <<<"$application")
+    failure_action=$(jq -r 'if .updateConfigSwarm == null then "rollback" else .updateConfigSwarm.FailureAction // "pause" end' \
+      <<<"$application")
+    if [ "$condition" != none ] || [ "$failure_action" != continue ]; then
+      echo "::error::$name runs to completion, so its Swarm settings need a restart policy whose condition is none (it's $condition) and an update config whose failure action is continue (it's $failure_action)"
+      exit 1
+    fi
+  fi
   names+=("$name")
   app_names+=("$app_name")
-  server_ids+=("$(jq -r '.serverId // empty' <<<"$application")")
-  completes+=("$(jq -r --arg id "$id" 'any(.[]; . == $id)' <<<"$RUN_TO_COMPLETION_APPLICATION_IDS")")
+  server_ids+=("$server_id")
+  completes+=("$complete")
 done
 
 digest=${IMAGE##*@}

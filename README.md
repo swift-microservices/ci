@@ -298,7 +298,8 @@ To put an older commit back on staging, re-run the Staging job of that commit's 
   an application needs two Swarm settings in Dokploy: a restart policy whose condition is `none`,
   since Swarm restarts an exited container under `any`, the default, and an update config whose
   failure action is `continue`, since Swarm counts a task that exits within an update's monitor
-  period as failed and the default config rolls the update back.
+  period as failed and the default config rolls the update back. `deploy_dokploy.yml` checks the
+  key's access to the containers and these settings before it deploys anything.
 - **Migrations** are expand/contract: the previous image must run on the current schema, because a
   rollback redeploys it.
 
