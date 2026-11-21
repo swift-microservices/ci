@@ -6,8 +6,9 @@ name: Deploy to Dokploy
 
 # Deploys a commit's image to each Dokploy application of an environment, in order, and waits for
 # each to finish and for a container of the image to run, healthy when it has a health check, before
-# the next. Production takes only a commit whose push to main deployed it to staging, which this
-# workflow's job name, Deploy staging, records.
+# the next. An application that runs to completion, such as a migration, waits instead for its new
+# container to exit 0. Production takes only a commit whose push to main deployed it to staging,
+# which this workflow's job name, Deploy staging, records.
 
 on:
   workflow_call:
@@ -30,6 +31,13 @@ on:
           The IDs of the Dokploy applications that run the image in this environment, in deploy
           order (JSON list).
         required: true
+      run_to_completion_application_ids:
+        type: string
+        description: >-
+          Those of application_ids whose command exits, such as a migration (JSON list); each waits
+          for its new container to exit 0 instead of to run. Their Swarm settings need a restart
+          policy whose condition is none and an update config whose failure action is continue.
+        default: "[]"
     secrets:
       DOKPLOY_URL:
         description: The Dokploy instance's URL, such as https://dokploy.example.com.
@@ -71,6 +79,7 @@ jobs:
           DOKPLOY_URL: ${{ secrets.DOKPLOY_URL }}
           DOKPLOY_TOKEN: ${{ secrets.DOKPLOY_TOKEN }}
           APPLICATION_IDS: ${{ inputs.application_ids }}
+          RUN_TO_COMPLETION_APPLICATION_IDS: ${{ inputs.run_to_completion_application_ids }}
           IMAGE: ${{ steps.resolve.outputs.image }}
           COMMIT: ${{ steps.resolve.outputs.commit }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
