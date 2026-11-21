@@ -98,7 +98,9 @@ specific to these workflows. Read it before adding or changing one.
   unprivileged user and has the product at `/app/<product>`, with every runtime library it links.
   The image is not started in CI; staging is where a release first runs. Every build keeps the
   image's SPDX SBOM as a workflow artifact (`anchore/sbom-action`) and scans it with
-  `anchore/scan-action`, failing only on a critical vulnerability with a fixed version.
+  `anchore/scan-action`. A pull request's build fails only on a critical vulnerability with a
+  fixed version; publishing reports one without failing, since the scanner's database changes
+  after the pull request passed and a deploy or a hotfix mustn't wait on it.
 - **Private packages.** `PACKAGES_TOKEN` reads the private repositories a package depends on.
   `tests.yml` and `foundation_linking.yml` write it to `~/.netrc` when it's given; `build_image.yml`
   passes it as the `netrc` build secret, which the Containerfile mounts for `swift package resolve`

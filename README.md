@@ -26,7 +26,7 @@ repository with an unusual need can call too:
 | --- | --- |
 | `tests.yml` | swiftlang's `swift_package_test.yml` Linux job, with its input names and formats plus `postgres_image` and `valkey_image`, for a package that needs private dependencies, a Postgres or a Valkey, which swiftlang's workflow can't give |
 | `foundation_linking.yml` | Builds an empty executable that links every library product, and each executable product `executable_products` names, and fails when one links Foundation's full library or ICU; `excluded_products` names the products it skips |
-| `build_image.yml` | Builds the `Containerfile` for linux/arm64 and checks it runs as an unprivileged user and links every runtime library; keeps its SBOM as an artifact and fails on a critical vulnerability that has a fix; with `publish: true` on `main`, pushes it once as `:<commit-sha>` |
+| `build_image.yml` | Builds the `Containerfile` for linux/arm64 and checks it runs as an unprivileged user and links every runtime library; keeps its SBOM as an artifact and, on a pull request, fails on a critical vulnerability that has a fix; with `publish: true` on `main`, reports such a vulnerability without failing and pushes the image once as `:<commit-sha>` |
 
 ### Deployment adapters
 
@@ -48,7 +48,8 @@ adapter; another platform adds `deploy_<platform>.yml` with the same inputs wher
 - The tests pass `-warnings-as-errors` and `--explicit-target-dependency-import-check error`, and a
   library also `-require-explicit-sendable`, which checks `public` declarations. Nightlies drop
   `-warnings-as-errors`. The image build passes none of them, so a warning a newer toolchain adds
-  never blocks a deploy or a hotfix.
+  never blocks a deploy or a hotfix. For the same reason, a critical vulnerability with a fix fails
+  a pull request's image but not the publish on `main`.
 - Foundation linking always runs. `foundation_linking_check_excluded_products` names the products
   that still link Foundation through a dependency; removing one checks it again.
 - A package of `.proto` files sets `protobuf_check_enabled: true` and declares `buf.yaml` at its
