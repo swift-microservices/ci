@@ -126,7 +126,7 @@ jobs:
     name: Tests
     needs: [setup]
     if: ${{ inputs.postgres_image == '' && inputs.valkey_image == '' && needs.setup.outputs.private_dependencies != 'true' }}
-    uses: swiftlang/github-workflows/.github/workflows/swift_package_test.yml@87329d126a6992483ba89aabefa1eaef1e5b0aad  # 0.0.17
+    uses: swiftlang/github-workflows/.github/workflows/swift_package_test.yml@e8b910942e79fb2c0654a87804d8f16e2304285c  # 0.0.19
     with:
       linux_swift_versions: ${{ inputs.linux_swift_versions || format('["{0}"]', needs.setup.outputs.swift_version) }}
       linux_os_versions: ${{ inputs.linux_os_versions }}
@@ -159,7 +159,7 @@ jobs:
     name: Static Linux SDK
     needs: [setup]
     if: ${{ inputs.enable_linux_static_sdk_build && (inputs.postgres_image != '' || inputs.valkey_image != '' || needs.setup.outputs.private_dependencies == 'true') }}
-    uses: swiftlang/github-workflows/.github/workflows/swift_package_test.yml@87329d126a6992483ba89aabefa1eaef1e5b0aad  # 0.0.17
+    uses: swiftlang/github-workflows/.github/workflows/swift_package_test.yml@e8b910942e79fb2c0654a87804d8f16e2304285c  # 0.0.19
     with:
       enable_linux_checks: false
       enable_linux_static_sdk_build: true
