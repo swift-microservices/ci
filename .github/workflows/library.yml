@@ -4,10 +4,10 @@
 
 name: Library
 
-# A Swift library's whole CI. On a pull request: Soundness, Tests, Foundation linking and, with
-# protobuf_check_enabled, Protobuf. On a push to
-# main or a scheduled run: Tests and Foundation linking, since the merged commit may differ from what
-# the pull request tested and a library resolves its dependencies' newest releases on every run.
+# A Swift library's whole CI. On a pull request: Soundness, Tests, Foundation linking and, with a
+# buf.yaml at the package's root, Protobuf. On a push to main or a scheduled run: Tests and
+# Foundation linking, since the merged commit may differ from what the pull request tested and a
+# library resolves its dependencies' newest releases on every run.
 #
 # Soundness and Foundation linking run on the package's swift-tools-version, and Tests on it, Ubuntu
 # noble and linux/arm64 unless the caller widens the platforms. Private dependencies are those a
@@ -69,8 +69,8 @@ on:
       protobuf_check_enabled:
         type: boolean
         description: >-
-          Lint the .proto files and fail a pull request that breaks their wire or JSON
-          compatibility, with buf and the repository's buf.yaml.
+          Deprecated and ignored: the Protobuf check runs when buf.yaml is at the package's root.
+          Removed in the next major release.
         default: false
     secrets:
       PACKAGES_TOKEN:
@@ -88,17 +88,20 @@ jobs:
     outputs:
       swift_version: ${{ steps.package.outputs.swift_version }}
       private_dependencies: ${{ steps.package.outputs.private_dependencies }}
+      buf_config: ${{ steps.package.outputs.buf_config }}
     steps:
-      - name: Checkout Package.swift
+      - name: Checkout Package.swift and buf.yaml
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
-          sparse-checkout: Package.swift
+          sparse-checkout: |
+            Package.swift
+            buf.yaml
           sparse-checkout-cone-mode: false
       - name: Find this repository's scripts
         id: scripts
         uses: $/.github/actions/scripts
-      - name: Read the toolchain and private dependencies
+      - name: Read the toolchain, private dependencies and buf.yaml
         id: package
         env:
           PACKAGES_TOKEN: ${{ secrets.PACKAGES_TOKEN }}
@@ -166,11 +169,14 @@ jobs:
       swift_nightly_flags: --explicit-target-dependency-import-check error -Xswiftc -require-explicit-sendable
 
   # buf's own breaking check, which sees what the Swift API breakage check can't: a field renumbered
-  # or a tag reused keeps the generated Swift API and breaks the wire. It compares against the
-  # pull request's base in the local clone, so a private repository needs no further credentials.
+  # or a tag reused keeps the generated Swift API and breaks the wire. It runs when buf.yaml is at
+  # the package's root, and compares against the pull request's base in the local clone, so a
+  # private repository needs no further credentials. buf's version is an input Dependabot doesn't
+  # read, so it's raised by hand.
   protobuf:
     name: Protobuf
-    if: ${{ github.event_name == 'pull_request' && inputs.protobuf_check_enabled }}
+    needs: [setup]
+    if: ${{ github.event_name == 'pull_request' && needs.setup.outputs.buf_config == 'true' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
