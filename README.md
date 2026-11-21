@@ -14,7 +14,7 @@ moves.
 | `library.yml` | `ci.yml` | Pull request: Soundness, Tests, Foundation linking, and Protobuf when `buf.yaml` is at the root. Push or schedule: Tests, Foundation linking |
 | `service.yml` | `ci.yml` | Pull request: Soundness, Tests, Foundation linking, Build image, and OpenAPI breakage with `openapi_breakage_check_path`. Push to `main`: Tests and Foundation linking, then Publish image as `:<commit-sha>` |
 | `deploy_dokploy.yml` | `ci.yml` (staging) and `deploy.yml` (production) | A commit's image on Dokploy, one application after another, each running or, when it runs to completion, exited 0 before the next; production only for a commit staging ran |
-| `attest_image.yml` | `ci.yml`, optionally | Signs the build provenance of a commit's published image and pushes the attestation beside it |
+| `attest_image.yml` | `ci.yml`, where GitHub stores attestations: a public repository, or a private one on GitHub Enterprise Cloud | Signs the build provenance and SBOM of a commit's published image and pushes the attestations beside it, so they last as long as the image |
 | `cleanup_images.yml` | `cleanup_images.yml` | Keeps the newest versions of a container package (30 by default) |
 | `pull_request_label.yml` | `pull_request_label.yml` | Exactly one semver label on a library's pull request |
 | `release.yml` | `release.yml` | A library's next minor or patch release, from the merged pull requests' labels; a major release is created by hand |
@@ -198,7 +198,8 @@ jobs:
       DOKPLOY_URL: ${{ secrets.DOKPLOY_URL }}
       DOKPLOY_TOKEN: ${{ secrets.DOKPLOY_TOKEN }}
 
-  # Optional: signed build provenance for each published image.
+  # Signed build provenance and SBOM for each published image, in a public repository or one on
+  # GitHub Enterprise Cloud; `gh attestation verify oci://<image> --owner <owner>` checks them.
   attest:
     name: Attest
     needs: [ci]

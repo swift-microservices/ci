@@ -10,9 +10,9 @@ specific to these workflows. Read it before adding or changing one.
 - Repositories call only this repository's workflows, never swiftlang's or Apple's: this
   repository routes to them. Every repository's CI workflow calls one CI pipeline, `library.yml` or
   `service.yml`; a library also calls `pull_request_label.yml` and `release.yml`, and a service
-  `deploy_dokploy.yml` (staging and production) and `cleanup_images.yml`. A change every repository
-  needs (a flag, a check, a pin) is made here once and reaches them through the pin Dependabot
-  moves.
+  `deploy_dokploy.yml` (staging and production), `cleanup_images.yml` and, where GitHub stores its
+  attestations, `attest_image.yml`. A change every repository needs (a flag, a check, a pin) is
+  made here once and reaches them through the pin Dependabot moves.
 - A CI pipeline holds the standard: which jobs run on which event, the default platforms, and the
   strict flags. Its inputs cover only what differs between repositories (platforms, products,
   Postgres, Valkey, docs targets); what it can read from the repository, it reads: the toolchain from
@@ -52,9 +52,12 @@ specific to these workflows. Read it before adding or changing one.
     those inputs. Remove it if swiftlang gains secrets and service containers.
   - `foundation_linking.yml`, `build_image.yml`, `deploy_dokploy.yml`, `attest_image.yml`, and
     `cleanup_images.yml` have no swiftlang counterpart.
-  - `attest_image.yml` is a workflow of its own, not an input to `service.yml`: signing needs
-    `id-token: write` and `attestations: write`, and a nested job's permissions can't depend on an
-    input, so a service opts in with a job that grants them.
+  - `attest_image.yml` is a workflow of its own, not part of `service.yml`: signing needs
+    `id-token: write` and `attestations: write`, which a nested job's caller must grant whatever
+    its inputs, and GitHub stores attestations for a private repository only on Enterprise Cloud,
+    so requiring them would fail every private service on another plan. A service that can attest
+    calls it from its own job that grants them, as it calls `deploy_dokploy.yml`. It attests the
+    provenance and an SBOM it reads from the published image, so both last as long as the image.
   - `library.yml`'s Protobuf job has none either; it runs `bufbuild/buf-action` with lint and
     breaking only, when `buf.yaml` is at the root, against the pull request's base in the local
     clone (`.git#ref=<base sha>`), since the action's default baseline clones the repository by
