@@ -24,7 +24,7 @@ repository with an unusual need can call too:
 
 | Workflow | Does |
 | --- | --- |
-| `tests.yml` | swiftlang's `swift_package_test.yml` Linux job, with its input names and formats plus `postgres_image`, for a package that needs private dependencies or a Postgres, which swiftlang's workflow can't give |
+| `tests.yml` | swiftlang's `swift_package_test.yml` Linux job, with its input names and formats plus `postgres_image` and `valkey_image`, for a package that needs private dependencies, a Postgres or a Valkey, which swiftlang's workflow can't give |
 | `foundation_linking.yml` | Builds an empty executable that links every library product, and each executable product `executable_products` names, and fails when one links Foundation's full library or ICU; `excluded_products` names the products it skips |
 | `build_image.yml` | Builds the `Containerfile` for linux/arm64 and checks it runs as an unprivileged user and links every runtime library; keeps its SBOM as an artifact and fails on a critical vulnerability that has a fix; with `publish: true` on `main`, pushes it once as `:<commit-sha>` |
 
@@ -168,6 +168,7 @@ jobs:
       executable_product: orders
       image_repository: ghcr.io/<owner>/<repository>
       postgres_image: postgres:<major>-alpine
+      valkey_image: valkey/valkey:<major>-alpine  # only with Valkey tests
     secrets:
       PACKAGES_TOKEN: ${{ secrets.PACKAGES_TOKEN }}
 

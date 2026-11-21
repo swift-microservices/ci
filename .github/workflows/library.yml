@@ -11,8 +11,8 @@ name: Library
 #
 # Soundness and Foundation linking run on the package's swift-tools-version, and Tests on it, Ubuntu
 # noble and linux/arm64 unless the caller widens the platforms. Private dependencies are those a
-# passed PACKAGES_TOKEN reads; tests that need them, or a Postgres, run in tests.yml, since
-# swiftlang's workflow can give neither.
+# passed PACKAGES_TOKEN reads; tests that need them, a Postgres or a Valkey run in tests.yml, since
+# swiftlang's workflow can give none of them.
 on:
   workflow_call:
     inputs:
@@ -61,6 +61,10 @@ on:
       postgres_image:
         type: string
         description: Postgres image started beside the tests, such as postgres:<major>-alpine; empty starts none.
+        default: ""
+      valkey_image:
+        type: string
+        description: Valkey image started beside the tests, such as valkey/valkey:<major>-alpine; empty starts none.
         default: ""
       protobuf_check_enabled:
         type: boolean
@@ -118,7 +122,7 @@ jobs:
   tests:
     name: Tests
     needs: [setup]
-    if: ${{ inputs.postgres_image == '' && needs.setup.outputs.private_dependencies != 'true' }}
+    if: ${{ inputs.postgres_image == '' && inputs.valkey_image == '' && needs.setup.outputs.private_dependencies != 'true' }}
     uses: swiftlang/github-workflows/.github/workflows/swift_package_test.yml@87329d126a6992483ba89aabefa1eaef1e5b0aad  # 0.0.17
     with:
       linux_swift_versions: ${{ inputs.linux_swift_versions || format('["{0}"]', needs.setup.outputs.swift_version) }}
@@ -133,7 +137,7 @@ jobs:
   package-tests:
     name: Tests
     needs: [setup]
-    if: ${{ inputs.postgres_image != '' || needs.setup.outputs.private_dependencies == 'true' }}
+    if: ${{ inputs.postgres_image != '' || inputs.valkey_image != '' || needs.setup.outputs.private_dependencies == 'true' }}
     uses: $/.github/workflows/tests.yml
     with:
       linux_swift_versions: ${{ inputs.linux_swift_versions || format('["{0}"]', needs.setup.outputs.swift_version) }}
@@ -143,6 +147,7 @@ jobs:
       swift_flags: -Xswiftc -warnings-as-errors --explicit-target-dependency-import-check error -Xswiftc -require-explicit-sendable
       swift_nightly_flags: --explicit-target-dependency-import-check error -Xswiftc -require-explicit-sendable
       postgres_image: ${{ inputs.postgres_image }}
+      valkey_image: ${{ inputs.valkey_image }}
     secrets:
       PACKAGES_TOKEN: ${{ secrets.PACKAGES_TOKEN }}
 
@@ -150,7 +155,7 @@ jobs:
   static-sdk:
     name: Static Linux SDK
     needs: [setup]
-    if: ${{ inputs.enable_linux_static_sdk_build && (inputs.postgres_image != '' || needs.setup.outputs.private_dependencies == 'true') }}
+    if: ${{ inputs.enable_linux_static_sdk_build && (inputs.postgres_image != '' || inputs.valkey_image != '' || needs.setup.outputs.private_dependencies == 'true') }}
     uses: swiftlang/github-workflows/.github/workflows/swift_package_test.yml@87329d126a6992483ba89aabefa1eaef1e5b0aad  # 0.0.17
     with:
       enable_linux_checks: false

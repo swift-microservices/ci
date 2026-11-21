@@ -6,9 +6,10 @@ name: Tests
 
 # swiftlang/github-workflows' swift_package_test.yml for a package that needs what that workflow can't
 # give: private dependencies, since it takes no secrets (swiftlang/github-workflows#59), or a Postgres
-# beside the tests, since it starts no service containers. This one runs the same Linux job, with the
-# same input names, after giving SwiftPM a token when there is one and starting Postgres when an image
-# is given. A package that needs neither calls swiftlang's workflow directly.
+# or Valkey beside the tests, since it starts no service containers. This one runs the same Linux job,
+# with the same input names, after giving SwiftPM a token when there is one and starting Postgres and
+# Valkey when their images are given. A package that needs none of them calls swiftlang's workflow
+# directly.
 on:
   workflow_call:
     inputs:
@@ -47,6 +48,12 @@ on:
           tests reach it through POSTGRES_HOST, POSTGRES_PORT, POSTGRES_USER, POSTGRES_PASSWORD, and
           POSTGRES_DB.
         default: ""
+      valkey_image:
+        type: string
+        description: >-
+          Valkey image started beside the tests, such as valkey/valkey:<major>-alpine; empty starts
+          none. The tests reach it through VALKEY_HOST and VALKEY_PORT.
+        default: ""
     secrets:
       PACKAGES_TOKEN:
         description: Token with read access to the private repositories the package depends on, if any.
@@ -81,6 +88,14 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
+      valkey:
+        # An empty image starts no service.
+        image: ${{ inputs.valkey_image }}
+        options: >-
+          --health-cmd "valkey-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -95,11 +110,17 @@ jobs:
           SCRIPTS: ${{ steps.scripts.outputs.directory }}
         run: bash "$SCRIPTS/configure-netrc.sh"
       - name: Point the tests at Postgres
-        # Only when Postgres runs: a test that checks whether POSTGRES_HOST is set then skips without it.
+        # Only when Postgres runs; without it, POSTGRES_HOST and the rest stay unset.
         if: ${{ inputs.postgres_image != '' }}
         env:
           SCRIPTS: ${{ steps.scripts.outputs.directory }}
         run: bash "$SCRIPTS/point-tests-at-postgres.sh"
+      - name: Point the tests at Valkey
+        # Only when Valkey runs; without it, VALKEY_HOST and VALKEY_PORT stay unset.
+        if: ${{ inputs.valkey_image != '' }}
+        env:
+          SCRIPTS: ${{ steps.scripts.outputs.directory }}
+        run: bash "$SCRIPTS/point-tests-at-valkey.sh"
       - name: Pre-build
         if: ${{ inputs.linux_pre_build_command != '' }}
         run: ${{ inputs.linux_pre_build_command }}
