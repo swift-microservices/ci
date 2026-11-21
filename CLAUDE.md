@@ -63,7 +63,8 @@ specific to these workflows. Read it before adding or changing one.
 - Inside a workflow, prefer a maintained action to shell: `actions/checkout`,
   `docker/setup-buildx-action`, `docker/build-push-action`, `docker/login-action`,
   `actions/delete-package-versions`. Shell is for what no action does well: the Foundation
-  linking check, the image checks, the staging gate, and Dokploy's API.
+  linking check, the image checks, a published image's digest, the staging gate, the OpenAPI
+  document's presence in the base commit, and Dokploy's API.
 - This repository's own pull requests reuse swiftlang's `soundness.yml` (YAML lint, license
   headers, unacceptable language, broken symlinks) and add only actionlint, which swiftlang lacks,
   to check every workflow and the shell in its `run:` steps.
