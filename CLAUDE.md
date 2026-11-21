@@ -54,6 +54,12 @@ specific to these workflows. Read it before adding or changing one.
     breaking only, against the pull request's base in the local clone (`.git#ref=<base sha>`),
     since the action's default baseline clones the repository by URL, which a private
     repository's checkout without persisted credentials can't.
+  - `service.yml`'s OpenAPI breakage job has none either; it runs
+    `oasdiff/oasdiff-action/breaking` with `fail-on: ERR` against the pull request's base in the
+    local clone (`<base sha>:<path>`), for the same reason. `review: false` and an empty
+    `github-token` keep the document in CI and post nothing, since the action's defaults upload an
+    encrypted copy for a side-by-side review and comment its link. When the base has no document
+    yet, the job notes it and passes.
 - Inside a workflow, prefer a maintained action to shell: `actions/checkout`,
   `docker/setup-buildx-action`, `docker/build-push-action`, `docker/login-action`,
   `actions/delete-package-versions`. Shell is for what no action does well: the Foundation
