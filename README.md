@@ -12,7 +12,7 @@ moves.
 | Workflow | A repository calls it from | Runs |
 | --- | --- | --- |
 | `library.yml` | `ci.yml` | Pull request: Soundness, Tests, Foundation linking, and Protobuf with `protobuf_check_enabled`. Push or schedule: Tests, Foundation linking |
-| `service.yml` | `ci.yml` | Pull request: Soundness, Tests, Foundation linking, Build image. Push to `main`: Tests and Foundation linking, then Publish image as `:<commit-sha>` |
+| `service.yml` | `ci.yml` | Pull request: Soundness, Tests, Foundation linking, Build image, and OpenAPI breakage with `openapi_breakage_check_path`. Push to `main`: Tests and Foundation linking, then Publish image as `:<commit-sha>` |
 | `deploy_dokploy.yml` | `ci.yml` (staging) and `deploy.yml` (production) | A commit's image on Dokploy, one application after another, each running or, when it runs to completion, exited 0 before the next; production only for a commit staging ran |
 | `attest_image.yml` | `ci.yml`, optionally | Signs the build provenance of a commit's published image and pushes the attestation beside it |
 | `cleanup_images.yml` | `cleanup_images.yml` | Keeps the newest versions of a container package (30 by default) |
@@ -55,6 +55,12 @@ adapter; another platform adds `deploy_<platform>.yml` with the same inputs wher
   root, listing each module and the lint and breaking rules. On a pull request, buf lints the
   files and compares them with the base commit, since the Swift API breakage check can't see a
   renumbered field or a reused tag.
+- A service that serves an OpenAPI document, such as a gateway, names it in
+  `openapi_breakage_check_path`. On a pull request, oasdiff compares it with the base commit and
+  fails on a change it rates `ERR`, a definite break for a client of the previous document, such as
+  a removed operation or a parameter made required; a `WARN` shows as an annotation. A
+  `.oasdiff.yaml` at the repository's root can ignore a break the service means to make, or raise a
+  check's level. The document never leaves CI, and nothing is commented.
 - Production runs only a commit whose push to `main` deployed it to staging. Rolling back means
   deploying an older commit whose image cleanup kept; nothing is rebuilt.
 
@@ -169,6 +175,7 @@ jobs:
       image_repository: ghcr.io/<owner>/<repository>
       postgres_image: postgres:<major>-alpine
       valkey_image: valkey/valkey:<major>-alpine  # only with Valkey tests
+      openapi_breakage_check_path: Sources/<Target>/openapi.yaml  # only with an OpenAPI document
     secrets:
       PACKAGES_TOKEN: ${{ secrets.PACKAGES_TOKEN }}
 

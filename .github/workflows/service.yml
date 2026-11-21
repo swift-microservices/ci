@@ -4,11 +4,11 @@
 
 name: Service
 
-# A Swift service's whole CI. On a pull request: Soundness, Tests, Foundation linking and a validated
-# image. On a push to main: Tests and Foundation linking, then the image published once as
-# :<commit-sha>. Any other run validates the image without publishing it. Soundness, Tests and
-# Foundation linking run on the package's swift-tools-version, the toolchain its Containerfile builds
-# with.
+# A Swift service's whole CI. On a pull request: Soundness, Tests, Foundation linking, a validated
+# image and, with openapi_breakage_check_path, OpenAPI breakage. On a push to main: Tests and
+# Foundation linking, then the image published once as :<commit-sha>. Any other run validates the
+# image without publishing it. Soundness, Tests and Foundation linking run on the package's
+# swift-tools-version, the toolchain its Containerfile builds with.
 #
 # Deployment isn't part of it: the service's CI workflow calls a deployment workflow, such as
 # deploy_dokploy.yml, after this one. The caller grants contents: read and packages: write, since a
@@ -46,6 +46,12 @@ on:
           Products the Foundation linking check skips while they link Foundation through a
           dependency, usually executable_product (JSON list); removing one checks it again.
         default: "[]"
+      openapi_breakage_check_path:
+        type: string
+        description: >-
+          Path of the OpenAPI document the service serves, such as Sources/<Target>/openapi.yaml; a
+          pull request that breaks its clients against the base fails. Empty checks none.
+        default: ""
     secrets:
       PACKAGES_TOKEN:
         description: Token with read access to the private repositories the package depends on, if any.
@@ -114,6 +120,41 @@ jobs:
       excluded_products: ${{ inputs.foundation_linking_check_excluded_products }}
     secrets:
       PACKAGES_TOKEN: ${{ secrets.PACKAGES_TOKEN }}
+
+  # oasdiff's breaking check, which sees what compiling the service can't: an operation removed, a
+  # parameter made required or a response narrowed still builds and breaks every client generated from
+  # the previous document. It compares against the pull request's base in the local clone, fails on a
+  # definite break (ERR), uploads nothing and comments nothing.
+  openapi-breakage:
+    name: OpenAPI breakage
+    if: ${{ github.event_name == 'pull_request' && inputs.openapi_breakage_check_path != '' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Find this repository's scripts
+        id: scripts
+        uses: $/.github/actions/scripts
+      - name: Find the document in the base
+        id: base
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          OPENAPI_PATH: ${{ inputs.openapi_breakage_check_path }}
+          SCRIPTS: ${{ steps.scripts.outputs.directory }}
+        run: bash "$SCRIPTS/find-openapi-base.sh"
+      - name: Check for breaking changes
+        if: ${{ steps.base.outputs.found == 'true' }}
+        uses: oasdiff/oasdiff-action/breaking@14ca7009a63c417dfe27b7c44359c4bcccaf8eee  # v0.2.1
+        with:
+          base: ${{ github.event.pull_request.base.sha }}:${{ inputs.openapi_breakage_check_path }}
+          revision: ${{ inputs.openapi_breakage_check_path }}
+          fail-on: ERR
+          review: false
+          github-token: ""
 
   image:
     name: Build image
