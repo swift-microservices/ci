@@ -79,13 +79,15 @@ jobs:
           format: spdx-json
           artifact-name: sbom-${{ github.sha }}.spdx.json
           upload-release-assets: false
-      # Only a critical vulnerability with a fixed version fails the build: one with no fix yet would
-      # block every deploy without a way forward.
+      # Only a critical vulnerability with a fixed version fails the build, and only a pull request's:
+      # one with no fix yet would block every deploy without a way forward, and publishing reports
+      # without failing, so a vulnerability disclosed after the pull request passed never blocks a
+      # deploy or a hotfix.
       - name: Scan the image for vulnerabilities
         uses: anchore/scan-action@27805bf3b4e84b4a5c980df22ed233c00390a439  # v7.4.2
         with:
           image: service-ci:${{ github.sha }}
-          fail-build: true
+          fail-build: ${{ !inputs.publish }}
           severity-cutoff: critical
           only-fixed: true
           output-format: table
