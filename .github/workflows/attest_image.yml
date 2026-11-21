@@ -4,9 +4,11 @@
 
 name: Attest image
 
-# Signs the build provenance of a commit's published image and pushes the attestation to the registry
-# beside it, so anyone pulling the image can verify which repository, commit and workflow built it
-# (`gh attestation verify oci://<image> --owner <owner>`). A service opts in by calling it after
+# Signs the build provenance and the SPDX SBOM of a commit's published image and pushes both
+# attestations to the registry beside it, so anyone pulling the image can verify which repository,
+# commit and workflow built it, and what it contains, for as long as the image is kept
+# (`gh attestation verify oci://<image> --owner <owner>`). A service whose repository GitHub stores
+# attestations for, a public one or a private one on GitHub Enterprise Cloud, calls it after
 # service.yml on a push to main; the job that calls it grants contents: read, packages: write,
 # id-token: write and attestations: write.
 
@@ -21,8 +23,9 @@ on:
 jobs:
   attest:
     name: Attest image
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    # The image's platform, linux/arm64, so syft reads the published image as it was built.
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 15
     steps:
       - name: Find this repository's scripts
         id: scripts
@@ -44,4 +47,21 @@ jobs:
         with:
           subject-name: ${{ inputs.image_repository }}
           subject-digest: ${{ steps.image.outputs.digest }}
+          push-to-registry: true
+      # The build's SBOM artifact expires with the run's artifacts; attested, the SBOM lasts as long as
+      # the image, including an older one a rollback deploys.
+      - name: List the image's packages
+        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c  # v0.24.3
+        with:
+          image: ${{ inputs.image_repository }}@${{ steps.image.outputs.digest }}
+          format: spdx-json
+          output-file: sbom.spdx.json
+          upload-artifact: false
+          upload-release-assets: false
+      - name: Attest the SBOM
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6  # v4.2.2
+        with:
+          subject-name: ${{ inputs.image_repository }}
+          subject-digest: ${{ steps.image.outputs.digest }}
+          sbom-path: sbom.spdx.json
           push-to-registry: true
