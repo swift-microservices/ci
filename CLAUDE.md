@@ -86,9 +86,11 @@ specific to these workflows. Read it before adding or changing one.
   then, one at a time in the listed order, sets the image, requests a deployment titled with the
   short commit, waits up to 15 minutes for a deployment newer than the one before the request
   to be `done`, then up to 10 minutes for a container of the deployed digest to run, healthy when
-  it has a health check. `error`, `cancelled`, or no such container within the time fails the run
-  and leaves the rest untouched. It is written against Dokploy's API (`application.one`,
-  `application.update`, `application.deploy`, `deployment.allByType`,
+  it has a health check. An application `run_to_completion_application_ids` lists waits instead
+  for its newest container of the digest, among those that didn't exist before the request, to
+  exit; exit code 0 moves on. `error`, `cancelled`, another exit code, or no such container within
+  the time fails the run and leaves the rest untouched. It is written against Dokploy's API
+  (`application.one`, `application.update`, `application.deploy`, `deployment.allByType`,
   `docker.getContainersByAppNameMatch`, `docker.getConfig`) with the `x-api-key` header. Docker's
   `ps` and `inspect` see only the containers on the application's server, so a Swarm that spreads
   an application across nodes must run one on the server Dokploy deploys from.

@@ -13,7 +13,7 @@ moves.
 | --- | --- | --- |
 | `library.yml` | `ci.yml` | Pull request: Soundness, Tests, Foundation linking, and Protobuf with `protobuf_check_enabled`. Push or schedule: Tests, Foundation linking |
 | `service.yml` | `ci.yml` | Pull request: Soundness, Tests, Foundation linking, Build image, and OpenAPI breakage with `openapi_breakage_check_path`. Push to `main`: Tests and Foundation linking, then Publish image as `:<commit-sha>` |
-| `deploy_dokploy.yml` | `ci.yml` (staging) and `deploy.yml` (production) | A commit's image on Dokploy; production only for a commit staging ran |
+| `deploy_dokploy.yml` | `ci.yml` (staging) and `deploy.yml` (production) | A commit's image on Dokploy, one application after another, each running or, when it runs to completion, exited 0 before the next; production only for a commit staging ran |
 | `attest_image.yml` | `ci.yml`, optionally | Signs the build provenance of a commit's published image and pushes the attestation beside it |
 | `cleanup_images.yml` | `cleanup_images.yml` | Keeps the newest versions of a container package (30 by default) |
 | `pull_request_label.yml` | `pull_request_label.yml` | Exactly one semver label on a library's pull request |
@@ -191,7 +191,8 @@ jobs:
     with:
       environment: staging
       image_repository: ghcr.io/<owner>/<repository>
-      application_ids: '["<staging serve id>", "<staging worker id>"]'
+      application_ids: '["<staging migrate id>", "<staging serve id>", "<staging worker id>"]'
+      run_to_completion_application_ids: '["<staging migrate id>"]'
     secrets:
       DOKPLOY_URL: ${{ secrets.DOKPLOY_URL }}
       DOKPLOY_TOKEN: ${{ secrets.DOKPLOY_TOKEN }}
@@ -240,7 +241,8 @@ jobs:
       environment: production
       commit: ${{ inputs.commit }}
       image_repository: ghcr.io/<owner>/<repository>
-      application_ids: '["<production serve id>", "<production worker id>"]'
+      application_ids: '["<production migrate id>", "<production serve id>", "<production worker id>"]'
+      run_to_completion_application_ids: '["<production migrate id>"]'
     secrets:
       DOKPLOY_URL: ${{ secrets.DOKPLOY_URL }}
       DOKPLOY_TOKEN: ${{ secrets.DOKPLOY_TOKEN }}
@@ -287,10 +289,15 @@ To put an older commit back on staging, re-run the Staging job of that commit's 
 
   A local build passes `--secret id=netrc,src=$HOME/.netrc`.
 - **Dokploy**: each application uses the Docker provider with the registry's credentials and
-  auto-deploy off, so only these workflows change what runs. List the application that runs
-  migrations first in `application_ids`. Each application waits for the one before it to run the
-  new image, and to pass its health check when Dokploy gives it one, so a serving application's
-  health check is what holds the rest back until migrations are applied.
+  auto-deploy off, so only these workflows change what runs. List the application that applies
+  migrations first in `application_ids`. Each application waits for the one before it: for a
+  container of the new image to run, and to pass its health check when Dokploy gives it one, or,
+  for an application `run_to_completion_application_ids` lists, such as a one-shot migration, for
+  its new container to exit 0. Any other exit fails the run, as does none within 10 minutes. Such
+  an application needs two Swarm settings in Dokploy: a restart policy whose condition is `none`,
+  since Swarm restarts an exited container under `any`, the default, and an update config whose
+  failure action is `continue`, since Swarm counts a task that exits within an update's monitor
+  period as failed and the default config rolls the update back.
 - **Migrations** are expand/contract: the previous image must run on the current schema, because a
   rollback redeploys it.
 
