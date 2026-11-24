@@ -88,7 +88,7 @@ jobs:
     name: Soundness
     needs: [setup]
     if: ${{ github.event_name == 'pull_request' }}
-    uses: swiftlang/github-workflows/.github/workflows/soundness.yml@87329d126a6992483ba89aabefa1eaef1e5b0aad  # 0.0.17
+    uses: swiftlang/github-workflows/.github/workflows/soundness.yml@e8b910942e79fb2c0654a87804d8f16e2304285c  # 0.0.19
     with:
       api_breakage_check_enabled: false
       license_header_check_enabled: ${{ inputs.license_header_check_enabled }}
