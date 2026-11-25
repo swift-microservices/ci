@@ -18,8 +18,10 @@ on:
     inputs:
       image_repository:
         type: string
-        description: Where service.yml published the image, such as ghcr.io/<owner>/<repository>.
-        required: true
+        description: >-
+          Where service.yml published the image, its image_repository; empty is its default,
+          ghcr.io/<owner>/<repository>, lowercased.
+        default: ""
 
 jobs:
   attest:
@@ -27,11 +29,18 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     outputs:
+      image_repository: ${{ steps.repository.outputs.image_repository }}
       platforms: ${{ steps.platforms.outputs.platforms }}
     steps:
       - name: Find this repository's scripts
         id: scripts
         uses: $/.github/actions/scripts
+      - name: Find the image repository
+        id: repository
+        env:
+          IMAGE_REPOSITORY: ${{ inputs.image_repository }}
+          SCRIPTS: ${{ steps.scripts.outputs.directory }}
+        run: bash "$SCRIPTS/image-repository.sh"
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550  # v4.8.0
         with:
@@ -41,20 +50,20 @@ jobs:
       - name: Find the image's digest
         id: image
         env:
-          IMAGE_REPOSITORY: ${{ inputs.image_repository }}
+          IMAGE_REPOSITORY: ${{ steps.repository.outputs.image_repository }}
           SCRIPTS: ${{ steps.scripts.outputs.directory }}
         run: bash "$SCRIPTS/image-digest.sh"
       - name: Find the image's platforms
         id: platforms
         env:
           DIGEST: ${{ steps.image.outputs.digest }}
-          IMAGE_REPOSITORY: ${{ inputs.image_repository }}
+          IMAGE_REPOSITORY: ${{ steps.repository.outputs.image_repository }}
           SCRIPTS: ${{ steps.scripts.outputs.directory }}
         run: bash "$SCRIPTS/image-platforms.sh"
       - name: Attest the build provenance
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8  # v4.2.2
         with:
-          subject-name: ${{ inputs.image_repository }}
+          subject-name: ${{ steps.repository.outputs.image_repository }}
           subject-digest: ${{ steps.image.outputs.digest }}
           push-to-registry: true
 
@@ -81,7 +90,7 @@ jobs:
       - name: List the image's packages
         uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c  # v0.24.3
         with:
-          image: ${{ inputs.image_repository }}@${{ matrix.digest }}
+          image: ${{ needs.attest.outputs.image_repository }}@${{ matrix.digest }}
           format: spdx-json
           output-file: sbom.spdx.json
           upload-artifact: false
@@ -89,7 +98,7 @@ jobs:
       - name: Attest the SBOM
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6  # v4.2.2
         with:
-          subject-name: ${{ inputs.image_repository }}
+          subject-name: ${{ needs.attest.outputs.image_repository }}
           subject-digest: ${{ matrix.digest }}
           sbom-path: sbom.spdx.json
           push-to-registry: true

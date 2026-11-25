@@ -4,12 +4,15 @@
 ## See LICENSE for license information.
 
 # Tags the images each architecture pushed by digest once as <repository>:<commit-sha>, only from
-# main. One architecture's image keeps its own manifest; several share one index, from which Docker
-# pulls each host's own.
+# main. One architecture's image keeps its own manifest, whose labels GHCR shows; several share one
+# index, from which Docker pulls each host's own and which carries the same metadata as annotations,
+# since GHCR reads a multi-architecture image's from its index. An annotation would wrap a single
+# image in an index, so one architecture's image gets none.
 #
 # Environment:
 # - DIGESTS_DIRECTORY: an empty file per architecture's image, named for its digest's hex.
 # - IMAGE_REPOSITORY: where it's published.
+# - ANNOTATIONS: the index's annotations, one `index:<key>=<value>` per line.
 # - GITHUB_REF, GITHUB_SHA: set by GitHub Actions.
 
 set -euo pipefail
@@ -33,5 +36,13 @@ if [ "${#sources[@]}" -eq 0 ]; then
   echo "::error::No architecture pushed an image to publish"
   exit 1
 fi
-docker buildx imagetools create --prefer-index=false --tag "$commit_tag" "${sources[@]}"
+annotation_flags=()
+if [ "${#sources[@]}" -gt 1 ]; then
+  while IFS= read -r annotation; do
+    if [ -n "$annotation" ]; then
+      annotation_flags+=(--annotation "$annotation")
+    fi
+  done <<< "$ANNOTATIONS"
+fi
+docker buildx imagetools create --prefer-index=false "${annotation_flags[@]}" --tag "$commit_tag" "${sources[@]}"
 docker buildx imagetools inspect "$commit_tag"

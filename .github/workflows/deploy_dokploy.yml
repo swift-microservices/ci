@@ -23,8 +23,10 @@ on:
         default: ""
       image_repository:
         type: string
-        description: Where build_image.yml published the image, such as ghcr.io/<owner>/<repository>.
-        required: true
+        description: >-
+          Where build_image.yml published the image, its image_repository; empty is its default,
+          ghcr.io/<owner>/<repository>, lowercased.
+        default: ""
       application_ids:
         type: string
         description: >-
@@ -59,6 +61,12 @@ jobs:
       - name: Find this repository's scripts
         id: scripts
         uses: $/.github/actions/scripts
+      - name: Find the image repository
+        id: repository
+        env:
+          IMAGE_REPOSITORY: ${{ inputs.image_repository }}
+          SCRIPTS: ${{ steps.scripts.outputs.directory }}
+        run: bash "$SCRIPTS/image-repository.sh"
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550  # v4.8.0
         with:
@@ -71,7 +79,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           COMMIT: ${{ inputs.commit || github.sha }}
           TARGET_ENVIRONMENT: ${{ inputs.environment }}
-          IMAGE_REPOSITORY: ${{ inputs.image_repository }}
+          IMAGE_REPOSITORY: ${{ steps.repository.outputs.image_repository }}
           SCRIPTS: ${{ steps.scripts.outputs.directory }}
         run: bash "$SCRIPTS/resolve-image.sh"
       - name: Deploy each Dokploy application in order
