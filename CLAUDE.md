@@ -133,10 +133,17 @@ skill's `delivery.md` states what a repository built its way declares and must p
 - **Names.** Workflow files and inputs are snake_case, as swiftlang's are; job IDs and scripts are
   kebab-case; job names are sentence case. An input that exists in swiftlang's workflows keeps its
   name and meaning (`linux_swift_versions`, `linux_host_archs`, `linux_os`, `linux_command`,
-  `linux_setup_command`, `linux_env_vars`, `swift_flags`, `enable_<platform>`). A check's setting
-  is `<check>_check_<setting>` in a pipeline, as in swiftlang's `soundness.yml`
+  `linux_setup_command`, `linux_env_vars`, `swift_flags`). A check's setting is
+  `<check>_check_<setting>` in a pipeline, as in swiftlang's `soundness.yml`
   (`foundation_linking_check_excluded_products`), and plain in a building block, whose workflow is
   its context (`foundation_linking.yml`'s `excluded_products`). Secrets are SCREAMING_SNAKE_CASE.
+- **Switches.** A Boolean that turns a job or check on or off is `<job>_enabled`, which reads as a
+  statement about the job, as Swift's API Design Guidelines name a Boolean, and as swiftlang's
+  `soundness.yml` names its checks (`format_check_enabled`, `linux_static_sdk_build_enabled`,
+  `windows_tests_enabled`). Where swiftlang names one otherwise, such as `package_test.yml`'s
+  `enable_windows`, the pipeline maps it. A Boolean that changes what a job does rather than
+  whether it runs keeps the name of what it drives, as `build_image.yml`'s `push` does
+  `docker/build-push-action`'s.
 - **Formats.** A list is a JSON list (`'["x86_64", "aarch64"]'`), a map a JSON object, an image a
   full reference. Where swiftlang takes another format, the pipeline converts it, as
   `docs_check_targets` is joined with spaces for `soundness.yml`.

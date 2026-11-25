@@ -334,8 +334,10 @@ that only a project's own services use may narrow its matrix to theirs.
 
 Lists are JSON lists, written `'["x86_64", "aarch64"]'`, and maps JSON objects, written
 `'{"LOG_LEVEL": "debug"}'`. An input that exists in swiftlang's workflows keeps its name, such as
-`linux_host_archs`, `linux_command` and `enable_windows`; a check's settings are named
-`<check>_check_<setting>`, as in swiftlang's `soundness.yml`.
+`linux_host_archs` and `linux_command`; a check's settings are named `<check>_check_<setting>`, as
+in swiftlang's `soundness.yml`. A switch that turns a job or check on or off is
+`<job>_enabled`, which reads as a statement about the job, as Swift names a Boolean, such as
+`format_check_enabled` and `windows_tests_enabled`.
 
 ### `library.yml`
 
@@ -349,10 +351,10 @@ Lists are JSON lists, written `'["x86_64", "aarch64"]'`, and maps JSON objects, 
 | `linux_env_vars` | `'{}'` | Variables the tests read |
 | `postgres_image` | `""` | Postgres started beside the tests, such as `postgres:18-alpine`; the tests read `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_USER`, `POSTGRES_PASSWORD` and `POSTGRES_DB` |
 | `valkey_image` | `""` | Valkey started beside the tests, such as `valkey/valkey:9-alpine`; the tests read `VALKEY_HOST` and `VALKEY_PORT` |
-| `enable_linux_static_sdk_build` | `true` | Build with the Static Linux SDK |
-| `enable_wasm_sdk_build` | `false` | Build with the Swift SDK for Wasm |
-| `enable_android_sdk_build` | `false` | Build with the Swift SDK for Android and test on its emulator |
-| `enable_windows` | `false` | Test on Windows |
+| `linux_static_sdk_build_enabled` | `true` | Build with the Static Linux SDK |
+| `wasm_sdk_build_enabled` | `false` | Build with the Swift SDK for Wasm |
+| `android_sdk_build_enabled` | `false` | Build with the Swift SDK for Android and test on its emulator |
+| `windows_tests_enabled` | `false` | Test on Windows |
 | `api_breakage_check_enabled` | `true` | Fail a pull request that breaks the public API; `false` before 1.0 |
 | `docs_check_targets` | `'[]'` | Targets whose documentation must build without warnings; empty reads `.spi.yml`'s `documentation_targets` |
 | `docs_check_container_image` | `""` | Image the documentation builds in; empty is the `swift-tools-version`'s |

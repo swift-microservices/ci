@@ -54,19 +54,19 @@ on:
         description: Valkey image started beside the tests, such as valkey/valkey:9-alpine; empty starts none.
         default: ""
       # Platforms, built by swiftlang's package_test.yml, which can't read private dependencies.
-      enable_linux_static_sdk_build:
+      linux_static_sdk_build_enabled:
         type: boolean
         description: Build with the Static Linux Swift SDK.
         default: true
-      enable_wasm_sdk_build:
+      wasm_sdk_build_enabled:
         type: boolean
         description: Build with the Swift SDK for Wasm.
         default: false
-      enable_android_sdk_build:
+      android_sdk_build_enabled:
         type: boolean
         description: Build with the Swift SDK for Android, and test on its emulator.
         default: false
-      enable_windows:
+      windows_tests_enabled:
         type: boolean
         description: Test on Windows.
         default: false
@@ -176,13 +176,14 @@ jobs:
     secrets:
       PACKAGES_TOKEN: ${{ secrets.PACKAGES_TOKEN }}
 
-  # Every platform but Linux's tests, on swiftlang's own toolchains for each.
+  # Every platform but Linux's tests, on swiftlang's own toolchains for each. package_test.yml names
+  # its switches enable_<platform>.
   platforms:
     name: Platforms
     needs: [setup]
     if: >-
-      ${{ inputs.enable_linux_static_sdk_build || inputs.enable_wasm_sdk_build ||
-      inputs.enable_android_sdk_build || inputs.enable_windows }}
+      ${{ inputs.linux_static_sdk_build_enabled || inputs.wasm_sdk_build_enabled ||
+      inputs.android_sdk_build_enabled || inputs.windows_tests_enabled }}
     uses: swiftlang/github-workflows/.github/workflows/package_test.yml@e8b910942e79fb2c0654a87804d8f16e2304285c  # 0.0.19
     with:
       enable_linux: false
@@ -191,10 +192,10 @@ jobs:
       enable_macos_swiftly: false
       enable_freebsd: false
       enable_embedded_wasm_sdk_build: false
-      enable_linux_static_sdk_build: ${{ inputs.enable_linux_static_sdk_build }}
-      enable_wasm_sdk_build: ${{ inputs.enable_wasm_sdk_build }}
-      enable_android_sdk_build: ${{ inputs.enable_android_sdk_build }}
-      enable_windows: ${{ inputs.enable_windows }}
+      enable_linux_static_sdk_build: ${{ inputs.linux_static_sdk_build_enabled }}
+      enable_wasm_sdk_build: ${{ inputs.wasm_sdk_build_enabled }}
+      enable_android_sdk_build: ${{ inputs.android_sdk_build_enabled }}
+      enable_windows: ${{ inputs.windows_tests_enabled }}
       swift_flags: ${{ needs.setup.outputs.swift_flags }}
       swift_nightly_flags: ${{ needs.setup.outputs.swift_nightly_flags }}
 
