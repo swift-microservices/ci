@@ -9,7 +9,7 @@ name: Service
 # Foundation linking, then the image published once as :<commit-sha>. Any other run validates the
 # image without publishing it. Soundness, Tests and Foundation linking run on the package's
 # swift-tools-version, the toolchain its Containerfile builds with. Tests and the image cover each
-# architecture linux_host_archs lists, aarch64 by default; several share one published index.
+# architecture linux_host_archs lists, which every caller states; several share one published index.
 #
 # Deployment isn't part of it: the service's CI workflow calls a deployment workflow, such as
 # deploy_dokploy.yml, after this one. The caller grants contents: read and packages: write, since a
@@ -34,7 +34,7 @@ on:
         description: >-
           Architectures the tests run on and the image is built for, x86_64 or aarch64 (JSON list):
           the ones the deployment's servers run.
-        default: '["aarch64"]'
+        required: true
       license_header_check_enabled:
         type: boolean
         description: Check every file's license header against .license_header_template.

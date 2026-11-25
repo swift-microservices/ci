@@ -15,7 +15,7 @@ moves.
 | `service.yml` | `ci.yml` | Pull request: Soundness, Tests, Foundation linking, Build image, and OpenAPI breakage with `openapi_breakage_check_path`. Push to `main`: Tests and Foundation linking, then Publish image as `:<commit-sha>` |
 | `deploy_dokploy.yml` | `ci.yml` (staging) and `deploy.yml` (production) | A commit's image on Dokploy, one application after another, each running or, when it runs to completion, exited 0 before the next; production only for a commit staging ran |
 | `attest_image.yml` | `ci.yml`, where GitHub stores attestations: a public repository, or a private one on GitHub Enterprise Cloud | Signs the build provenance of a commit's published image, and an SBOM of each platform's image, and pushes the attestations beside them, so they last as long as the image |
-| `cleanup_images.yml` | `cleanup_images.yml` | Keeps the newest versions of a container package (30 by default) |
+| `cleanup_images.yml` | `cleanup_images.yml` | Keeps the newest commits' images of a container package (30 by default), each with its platform images and attestations, and deletes untagged uploads older than a day |
 | `pull_request_label.yml` | `pull_request_label.yml` | Exactly one semver label on a library's pull request |
 | `release.yml` | `release.yml` | A library's next minor or patch release, from the merged pull requests' labels; a major release is created by hand |
 
@@ -26,7 +26,7 @@ repository with an unusual need can call too:
 | --- | --- |
 | `tests.yml` | swiftlang's `swift_package_test.yml` Linux job, with its input names and formats plus `postgres_image` and `valkey_image`, for a package that needs private dependencies, a Postgres or a Valkey, which swiftlang's workflow can't give |
 | `foundation_linking.yml` | Builds an empty executable that links every library product, and each executable product `executable_products` names, and fails when one links Foundation's full library or ICU; `excluded_products` names the products it skips |
-| `build_image.yml` | Builds the `Containerfile` for each architecture `linux_host_archs` lists (linux/arm64 by default), each on a runner of its own, and checks it runs as an unprivileged user and links every runtime library; keeps its SBOM as an artifact and, on a pull request, fails on a critical vulnerability that has a fix; with `publish: true` on `main`, reports such a vulnerability without failing and pushes the image once as `:<commit-sha>` |
+| `build_image.yml` | Builds the `Containerfile` once for each architecture `linux_host_archs` lists, each on a runner of its own, and checks it runs as an unprivileged user and links every runtime library; keeps its SBOM as an artifact and, on a pull request, fails on a critical vulnerability that has a fix; with `publish: true` on `main`, pushes each image by digest, runs the checks on the pushed image, reports such a vulnerability without failing, and tags the commit once as `:<commit-sha>` when every architecture passed |
 
 ### Deployment adapters
 
@@ -44,10 +44,11 @@ adapter; another platform adds `deploy_<platform>.yml` with the same inputs wher
   Foundation linking and the Containerfile's `swift:<tools version>-noble` can't drift apart. A
   library others build with widens `linux_swift_versions`, `linux_host_archs` and
   `enable_linux_static_sdk_build`.
-- A service tests on, and builds its image for, the architectures its servers run:
-  `linux_host_archs`, aarch64 by default. With several, each builds on its own runner, and the
-  commit's one tag names an index of them, from which Docker pulls each host's own; one keeps a
-  plain image. Every caller requires the same `Build and validate image` check whatever the list.
+- Every package states the architectures it tests on in `linux_host_archs`, which has no default:
+  a service the ones its servers run, which its image is built for too, and a system library the
+  same as its services. With several, each builds on its own runner, and the commit's one tag
+  names an index of them, from which Docker pulls each host's own; one keeps a plain image. Every
+  caller requires the same `Build and validate image` check whatever the list.
 - Passing `PACKAGES_TOKEN` is what marks private dependencies; there's no other input for them.
 - The tests pass `-warnings-as-errors` and `--explicit-target-dependency-import-check error`, and a
   library also `-require-explicit-sendable`, which checks `public` declarations. Nightlies drop
@@ -97,6 +98,7 @@ jobs:
     name: CI
     uses: swift-microservices/ci/.github/workflows/library.yml@<commit>  # <release>
     with:
+      linux_host_archs: '["aarch64"]'  # the architectures its services run
       api_breakage_check_enabled: true  # from the library's 1.0.0
       foundation_linking_check_excluded_products: '["<Org>Persistence"]'
 ```

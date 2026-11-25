@@ -22,7 +22,7 @@ on:
       linux_host_archs:
         type: string
         description: Architectures to build the image for, x86_64 or aarch64 (JSON list).
-        default: '["aarch64"]'
+        required: true
       publish:
         type: boolean
         description: Push the validated image as :<commit-sha>; allowed only on main.
@@ -37,7 +37,7 @@ on:
 # Permissions are inherited: pull request callers grant contents: read; publishing callers also
 # grant packages: write.
 jobs:
-  # One image per architecture, each built and checked on a runner of its own architecture, so
+  # One image per architecture, each built once and checked on a runner of its own architecture, so
   # nothing runs under emulation. Publishing pushes each by digest alone, untagged; the image job
   # then writes the commit's one tag over all of them.
   build:
@@ -64,16 +64,33 @@ jobs:
         run: bash "$SCRIPTS/image-platform.sh"
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069  # v4.4.1
+      - name: Log in to GitHub Container Registry
+        if: ${{ inputs.publish }}
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550  # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      # Built once. A pull request loads the image locally and pushes nothing. Publishing pushes it by
+      # digest, untagged, and the checks below then run on that pushed image, so the image checked is
+      # the image published; the commit's tag is written only once every architecture passes.
+      # Attestations are attest_image.yml's, so the build adds none of buildx's own.
       - name: Build release image
+        id: build
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc  # v7.4.0
         with:
           context: .
           file: Containerfile
           target: ${{ inputs.containerfile_target }}
           platforms: ${{ steps.platform.outputs.platform }}
-          load: true
+          load: ${{ !inputs.publish }}
           push: false
-          tags: service-ci:${{ github.sha }}
+          tags: ${{ !inputs.publish && format('service-ci:{0}', github.sha) || '' }}
+          outputs: >-
+            ${{ inputs.publish &&
+            format('type=image,name={0},push-by-digest=true,name-canonical=true,push=true', inputs.image_repository) || '' }}
+          provenance: false
+          sbom: false
           labels: org.opencontainers.image.revision=${{ github.sha }}
           cache-from: type=gha,scope=service-image-${{ matrix.arch }}
           cache-to: type=gha,scope=service-image-${{ matrix.arch }},mode=max
@@ -81,9 +98,18 @@ jobs:
           secrets: >-
             ${{ secrets.PACKAGES_TOKEN != '' &&
             format('netrc=machine github.com login x-access-token password {0}', secrets.PACKAGES_TOKEN) || '' }}
+      - name: Find the image to check
+        id: image
+        env:
+          PUBLISH: ${{ inputs.publish }}
+          LOCAL_IMAGE: service-ci:${{ github.sha }}
+          IMAGE_REPOSITORY: ${{ inputs.image_repository }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+          SCRIPTS: ${{ steps.scripts.outputs.directory }}
+        run: bash "$SCRIPTS/find-image-to-check.sh"
       - name: Check the user and runtime libraries
         env:
-          CI_IMAGE: service-ci:${{ github.sha }}
+          CI_IMAGE: ${{ steps.image.outputs.image }}
           EXECUTABLE_PRODUCT: ${{ inputs.executable_product }}
           SCRIPTS: ${{ steps.scripts.outputs.directory }}
         run: bash "$SCRIPTS/check-image.sh"
@@ -92,7 +118,7 @@ jobs:
       - name: List the image's packages
         uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c  # v0.24.3
         with:
-          image: service-ci:${{ github.sha }}
+          image: ${{ steps.image.outputs.image }}
           format: spdx-json
           artifact-name: sbom-${{ github.sha }}-${{ matrix.arch }}.spdx.json
           upload-release-assets: false
@@ -103,53 +129,20 @@ jobs:
       - name: Scan the image for vulnerabilities
         uses: anchore/scan-action@27805bf3b4e84b4a5c980df22ed233c00390a439  # v7.4.2
         with:
-          image: service-ci:${{ github.sha }}
+          image: ${{ steps.image.outputs.image }}
           fail-build: ${{ !inputs.publish }}
           severity-cutoff: critical
           only-fixed: true
           output-format: table
-      - name: Log in to GitHub Container Registry
-        if: ${{ inputs.publish }}
-        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550  # v4.8.0
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Find whether the commit's image is published
-        id: published
+      - name: Keep the checked digest
         if: ${{ inputs.publish }}
         env:
-          IMAGE_REPOSITORY: ${{ inputs.image_repository }}
-          SCRIPTS: ${{ steps.scripts.outputs.directory }}
-        run: bash "$SCRIPTS/image-published.sh"
-      # The checked build again, from its cache, pushed by digest with no tag. Attestations are
-      # attest_image.yml's, so the push carries none of buildx's own.
-      - name: Push the image by digest
-        id: push
-        if: ${{ inputs.publish && steps.published.outputs.published == 'false' }}
-        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc  # v7.4.0
-        with:
-          context: .
-          file: Containerfile
-          target: ${{ inputs.containerfile_target }}
-          platforms: ${{ steps.platform.outputs.platform }}
-          labels: org.opencontainers.image.revision=${{ github.sha }}
-          outputs: type=image,name=${{ inputs.image_repository }},push-by-digest=true,name-canonical=true,push=true
-          provenance: false
-          sbom: false
-          cache-from: type=gha,scope=service-image-${{ matrix.arch }}
-          secrets: >-
-            ${{ secrets.PACKAGES_TOKEN != '' &&
-            format('netrc=machine github.com login x-access-token password {0}', secrets.PACKAGES_TOKEN) || '' }}
-      - name: Keep the pushed digest
-        if: ${{ steps.push.outcome == 'success' }}
-        env:
-          DIGEST: ${{ steps.push.outputs.digest }}
+          DIGEST: ${{ steps.build.outputs.digest }}
           DIGESTS_DIRECTORY: ${{ runner.temp }}/digests
           SCRIPTS: ${{ steps.scripts.outputs.directory }}
         run: bash "$SCRIPTS/keep-image-digest.sh"
-      - name: Upload the pushed digest
-        if: ${{ steps.push.outcome == 'success' }}
+      - name: Upload the checked digest
+        if: ${{ inputs.publish }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         with:
           name: image-digest-${{ github.sha }}-${{ matrix.arch }}
