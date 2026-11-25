@@ -72,7 +72,7 @@ specific to these workflows. Read it before adding or changing one.
 - Inside a workflow, prefer a maintained action to shell: `actions/checkout`,
   `docker/setup-buildx-action`, `docker/build-push-action`, `docker/login-action`,
   `actions/delete-package-versions`. Shell is for what no action does well: the Foundation
-  linking check, the image checks, a published image's digest, the staging gate, the OpenAPI
+  linking check, the image checks, a published image's digest and platforms, the architectures' digests, the staging gate, the OpenAPI
   document's presence in the base commit, and Dokploy's API.
 - This repository's own pull requests reuse swiftlang's `soundness.yml` (YAML lint, license
   headers, unacceptable language, broken symlinks) and add only actionlint, which swiftlang lacks,
@@ -106,8 +106,14 @@ specific to these workflows. Read it before adding or changing one.
   `docker.getContainersByAppNameMatch`, `docker.getConfig`) with the `x-api-key` header. Docker's
   `ps` and `inspect` see only the containers on the application's server, so a Swarm that spreads
   an application across nodes must run one on the server Dokploy deploys from.
-- **Images.** A `Containerfile` at the repository root builds a linux/arm64 image that runs as an
-  unprivileged user and has the product at `/app/<product>`, with every runtime library it links.
+- **Images.** A `Containerfile` at the repository root builds an image for each architecture in
+  `linux_host_archs` (linux/arm64 by default, linux/amd64 for x86_64), each on a runner of that
+  architecture, that runs as an unprivileged user and has the product at `/app/<product>`, with
+  every runtime library it links. Publishing pushes each by digest, untagged, then writes the
+  commit's tag once with `imagetools create --prefer-index=false`: one architecture's image keeps
+  its own manifest, several share an index. The `Build and validate image` job aggregates the
+  matrix and fails unless every architecture passed, so callers require one check whatever the list.
+  `attest_image.yml` attests the provenance to the tagged digest and an SBOM to each platform's.
   The image is not started in CI; staging is where a release first runs. Every build keeps the
   image's SPDX SBOM as a workflow artifact (`anchore/sbom-action`) and scans it with
   `anchore/scan-action`. A pull request's build fails only on a critical vulnerability with a
