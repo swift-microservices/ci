@@ -131,7 +131,9 @@ skill's `delivery.md` states what a repository built its way declares and must p
 ## Conventions
 
 - **Names.** Workflow files and inputs are snake_case, as swiftlang's are; job IDs and scripts are
-  kebab-case; job names are sentence case. An input that exists in swiftlang's workflows keeps its
+  kebab-case; job names are sentence case and name what the job checks or makes (`Tests`, `Image`,
+  `Publish`). A caller's job is named for the package kind (`Library`, `Service`), so its required
+  check reads `Library / Passed`. An input that exists in swiftlang's workflows keeps its
   name and meaning (`linux_swift_versions`, `linux_host_archs`, `linux_os`, `linux_command`,
   `linux_setup_command`, `linux_env_vars`, `swift_flags`). A check's setting is
   `<check>_check_<setting>` in a pipeline, as in swiftlang's `soundness.yml`
@@ -152,8 +154,27 @@ skill's `delivery.md` states what a repository built its way declares and must p
   A value the workflow can read from the repository, such as the toolchain, isn't an input; one a
   repository may still need to set, such as `image_repository`, is an input whose default the
   workflow reads.
+- **Inputs.** A pipeline groups its inputs under a comment naming the job they configure. Each
+  description is one sentence: what the input is, its format for a list or a map (`(JSON list)`),
+  and what empty means when empty does something. A secret is required only when every run needs
+  it. Every input appears in the README's Inputs table with its default, and a renamed or removed
+  one in the pull request's notes on moving.
+- **Workflows.** A reusable workflow starts with the license header, its `name:`, and a comment
+  saying what it does, on which events, who calls it, and the permissions its caller grants. A
+  comment above a job or step says why it's there, not what it runs.
+- **Jobs.** Every job has a `timeout-minutes` and runs on a pinned runner image, `ubuntu-24.04`
+  or `ubuntu-24.04-arm`, never a `-latest` one. A job for an architecture runs on that
+  architecture's runner, never under emulation. A checkout sets `persist-credentials: false` and
+  fetches only what the job reads: a sparse checkout to read a file, the full history only to
+  compare with a base.
+- **Conditions.** A job runs only where it applies, by an `if` on the event, a switch, or a file the
+  setup job found, such as `buf.yaml`; a job that always applies has none. A pull-request-only job
+  tests `github.event_name == 'pull_request'`, and a default-branch-only one compares `github.ref`
+  with `github.event.repository.default_branch`, never with `main` written out. Every job a
+  pipeline adds is in its `Passed` job's `needs`, or a failure in it passes the required check.
 - **Pins.** Every action and reusable workflow is pinned to its latest release's full commit with
   the release in a comment (`# v7.0.1`); `# main` only when the upstream publishes no releases.
+  Every call to swiftlang's workflows pins the same release.
 - **Self-references.** A workflow calls this repository's workflows and scripts with `$/`
   (`uses: $/.github/workflows/tests.yml`, `uses: $/.github/actions/scripts`), so they run at its
   own commit. actionlint 1.7.12 doesn't know `$/`, so this repository's actionlint step ignores
@@ -162,9 +183,13 @@ skill's `delivery.md` states what a repository built its way declares and must p
   `bash "$SCRIPTS/<script>.sh"`. A command input such as `linux_command` is the one `run:` that
   isn't a script: it runs as given, as in swiftlang. A script starts with `#!/bin/bash`, the `##`
   license header, a comment saying what it does and the environment it reads, and
-  `set -euo pipefail`. Inputs reach it through `env:`, never interpolated into a command. It quotes
-  expansions, reports failures with `::error::`, and passes shellcheck. A file a script writes
-  under GITHUB_OUTPUT or GITHUB_ENV with several lines uses a random heredoc delimiter.
+  `set -euo pipefail`. Inputs reach it through `env:`, never interpolated into a command. It checks
+  the inputs it reads before acting on them and fails early with an `::error::` that names the
+  input and the form it expects, as `start-deployment.sh` does for an image without a digest. It
+  quotes expansions and passes shellcheck. A value a script writes to GITHUB_OUTPUT or GITHUB_ENV
+  over several lines uses a random heredoc delimiter, and its comment names every output it writes.
+- **Docs.** A change updates the README, for callers, and this file, for maintainers, in the same
+  pull request.
 - **Headers.** Files carry the compact MIT header from `.license_header_template`.
 - **API.** Workflow file names, inputs, secrets, outputs and the `Passed` job are public API.
   Renaming or removing one is a major release, whose notes say how to move.

@@ -9,7 +9,7 @@ name: Foundation linking
 # an empty executable depending on every library product, and each executable product, and fails
 # when one of them links Foundation. Builds are dynamic, since ldd sees nothing in a static binary,
 # and use the committed Package.resolved when there is one. swiftlang/github-workflows has no such
-# check.
+# check. The pipelines call it on every event; the caller grants contents: read.
 on:
   workflow_call:
     inputs:

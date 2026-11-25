@@ -10,7 +10,8 @@ name: Publish image
 # never twice, so a re-run never replaces the image an environment ran. Its `image` output names
 # the result by digest, for a deployment or an attestation.
 #
-# Permissions are inherited: callers grant contents: read and packages: write.
+# service.yml calls it on the default branch once the tests pass. Permissions are inherited:
+# callers grant contents: read and packages: write.
 on:
   workflow_call:
     inputs:

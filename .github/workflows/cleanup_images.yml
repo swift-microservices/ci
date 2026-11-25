@@ -8,7 +8,8 @@ name: Clean up images
 # attestations, and deletes untagged uploads a failed publish left. A multi-architecture image is
 # one index and a platform image per architecture, and each attestation is a package version of its
 # own, so counting package versions would split an image and break the oldest one kept; the action
-# counts tagged images and keeps every version one of them needs.
+# counts tagged images and keeps every version one of them needs. A service's cleanup_images.yml
+# calls it on a schedule, for an image on GHCR.
 
 on:
   workflow_call:
@@ -29,7 +30,7 @@ on:
 jobs:
   cleanup:
     name: Delete old image versions
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - name: Find this repository's scripts

@@ -4,9 +4,9 @@
 
 name: PR label
 
-# Exactly one semver label on a pull request: this repository's own check, and the one a library
-# calls from its pull_request_label.yml. The job that calls it grants contents: read and
-# pull-requests: read.
+# A semver label on every pull request: this repository's own check, and the one a library calls
+# from its pull_request_label.yml on each pull request and label change. The job that calls it
+# grants contents: read and pull-requests: read.
 on:
   pull_request:
     types: [labeled, unlabeled, opened, reopened, synchronize]

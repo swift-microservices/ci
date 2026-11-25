@@ -11,9 +11,9 @@ name: Library
 # resolves its dependencies' newest releases on every run. Passed fails when any of them failed,
 # so a ruleset requires that one check.
 #
-# A library builds wherever its users do, so Tests default to every supported Swift release from
-# the package's swift-tools-version up, both nightlies, and both Linux architectures. Soundness and
-# Foundation linking run on the package's swift-tools-version.
+# A library builds wherever its users do, so Tests default to swiftlang's supported releases and
+# both nightlies, from the package's swift-tools-version up, on both Linux architectures. Soundness
+# and Foundation linking run on the package's swift-tools-version. Its caller grants contents: read.
 on:
   workflow_call:
     inputs:

@@ -16,7 +16,8 @@ name: Deploy to Dokploy
 # protection rules, such as required reviewers, and its secrets apply. One deployment at a time per
 # environment, never cancelled midway.
 #
-# The job that calls it grants contents: read and deployments: write.
+# A service's main.yml calls it for staging on each push, and its deploy.yml for production by
+# hand; the job that calls it grants contents: read and deployments: write.
 on:
   workflow_call:
     inputs:

@@ -4,7 +4,8 @@
 
 name: Release
 
-# This repository's own release, and the one a library calls from its release.yml.
+# This repository's own release, and the one a library calls from its release.yml, run by hand on
+# main. The job that calls it grants contents: write and pull-requests: read.
 on:
   workflow_dispatch:
   workflow_call:

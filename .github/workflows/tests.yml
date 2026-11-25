@@ -9,7 +9,8 @@ name: Tests
 # dependencies PACKAGES_TOKEN reads (swiftlang/github-workflows#59), and a Postgres or a Valkey
 # beside the tests. Its inputs keep package_test.yml's names, formats and defaults, and add only
 # postgres_image and valkey_image. Each toolchain runs in its Swift image, on a runner of its
-# architecture, so nothing runs under emulation.
+# architecture, so nothing runs under emulation. The pipelines call it on every event; the caller
+# grants contents: read.
 on:
   workflow_call:
     inputs:

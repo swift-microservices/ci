@@ -12,8 +12,8 @@ name: Build image
 # digest, untagged, the checks run on the pushed image, and its digest is kept as an artifact for
 # the job that tags the commit's image.
 #
-# Permissions are inherited: a caller that pushes grants contents: read and packages: write, one
-# that doesn't contents: read.
+# service.yml calls it on every event, pushing on the default branch. Permissions are inherited: a
+# caller that pushes grants contents: read and packages: write, one that doesn't contents: read.
 on:
   workflow_call:
     inputs:
