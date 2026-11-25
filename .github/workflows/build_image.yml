@@ -13,8 +13,10 @@ on:
         required: true
       image_repository:
         type: string
-        description: Where the image is published, such as ghcr.io/<owner>/<repository>.
-        required: true
+        description: >-
+          Where the image is published, lowercase; empty publishes to ghcr.io/<owner>/<repository>,
+          lowercased.
+        default: ""
       containerfile_target:
         type: string
         description: Containerfile stage to build; empty builds the last one.
@@ -56,6 +58,12 @@ jobs:
       - name: Find this repository's scripts
         id: scripts
         uses: $/.github/actions/scripts
+      - name: Find the image repository
+        id: repository
+        env:
+          IMAGE_REPOSITORY: ${{ inputs.image_repository }}
+          SCRIPTS: ${{ steps.scripts.outputs.directory }}
+        run: bash "$SCRIPTS/image-repository.sh"
       - name: Find the image's platform
         id: platform
         env:
@@ -71,10 +79,21 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      # The OCI labels GHCR shows on the package page, read from the repository: its URL as
+      # org.opencontainers.image.source, which links the package to it from the first push so the
+      # package inherits its access, its description and its license, and the commit as .revision.
+      # Only the labels are used; the commit's tag is the image job's alone.
+      - name: Read the image's labels
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302  # v6.2.0
+        with:
+          images: ${{ steps.repository.outputs.image_repository }}
+          tags: type=sha,format=long,prefix=
       # Built once. A pull request loads the image locally and pushes nothing. Publishing pushes it by
-      # digest, untagged, and the checks below then run on that pushed image, so the image checked is
-      # the image published; the commit's tag is written only once every architecture passes.
-      # Attestations are attest_image.yml's, so the build adds none of buildx's own.
+      # digest, untagged, with OCI media types, which an index's annotations need, and the checks
+      # below then run on that pushed image, so the image checked is the image published; the
+      # commit's tag is written only once every architecture passes. Attestations are
+      # attest_image.yml's, so the build adds none of buildx's own.
       - name: Build release image
         id: build
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc  # v7.4.0
@@ -88,10 +107,11 @@ jobs:
           tags: ${{ !inputs.publish && format('service-ci:{0}', github.sha) || '' }}
           outputs: >-
             ${{ inputs.publish &&
-            format('type=image,name={0},push-by-digest=true,name-canonical=true,push=true', inputs.image_repository) || '' }}
+            format('type=image,name={0},push-by-digest=true,name-canonical=true,oci-mediatypes=true,push=true',
+            steps.repository.outputs.image_repository) || '' }}
           provenance: false
           sbom: false
-          labels: org.opencontainers.image.revision=${{ github.sha }}
+          labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha,scope=service-image-${{ matrix.arch }}
           cache-to: type=gha,scope=service-image-${{ matrix.arch }},mode=max
           # Mounted by the Containerfile for `swift package resolve` only; it never enters a layer.
@@ -103,7 +123,7 @@ jobs:
         env:
           PUBLISH: ${{ inputs.publish }}
           LOCAL_IMAGE: service-ci:${{ github.sha }}
-          IMAGE_REPOSITORY: ${{ inputs.image_repository }}
+          IMAGE_REPOSITORY: ${{ steps.repository.outputs.image_repository }}
           DIGEST: ${{ steps.build.outputs.digest }}
           SCRIPTS: ${{ steps.scripts.outputs.directory }}
         run: bash "$SCRIPTS/find-image-to-check.sh"
@@ -168,6 +188,13 @@ jobs:
           BUILD_RESULT: ${{ needs.build.result }}
           SCRIPTS: ${{ steps.scripts.outputs.directory }}
         run: bash "$SCRIPTS/check-image-builds.sh"
+      - name: Find the image repository
+        id: repository
+        if: ${{ inputs.publish }}
+        env:
+          IMAGE_REPOSITORY: ${{ inputs.image_repository }}
+          SCRIPTS: ${{ steps.scripts.outputs.directory }}
+        run: bash "$SCRIPTS/image-repository.sh"
       - name: Set up Docker Buildx
         if: ${{ inputs.publish }}
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069  # v4.4.1
@@ -182,7 +209,7 @@ jobs:
         id: published
         if: ${{ inputs.publish }}
         env:
-          IMAGE_REPOSITORY: ${{ inputs.image_repository }}
+          IMAGE_REPOSITORY: ${{ steps.repository.outputs.image_repository }}
           SCRIPTS: ${{ steps.scripts.outputs.directory }}
         run: bash "$SCRIPTS/image-published.sh"
       - name: Download the pushed digests
@@ -192,10 +219,22 @@ jobs:
           pattern: image-digest-${{ github.sha }}-*
           path: ${{ runner.temp }}/digests
           merge-multiple: true
+      # The platform images' labels again, as annotations on the index several architectures share,
+      # where GHCR reads a multi-architecture image's.
+      - name: Read the index's annotations
+        id: meta
+        if: ${{ inputs.publish && steps.published.outputs.published == 'false' }}
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302  # v6.2.0
+        env:
+          DOCKER_METADATA_ANNOTATIONS_LEVELS: index
+        with:
+          images: ${{ steps.repository.outputs.image_repository }}
+          tags: type=sha,format=long,prefix=
       - name: Publish the image
         if: ${{ inputs.publish && steps.published.outputs.published == 'false' }}
         env:
           DIGESTS_DIRECTORY: ${{ runner.temp }}/digests
-          IMAGE_REPOSITORY: ${{ inputs.image_repository }}
+          IMAGE_REPOSITORY: ${{ steps.repository.outputs.image_repository }}
+          ANNOTATIONS: ${{ steps.meta.outputs.annotations }}
           SCRIPTS: ${{ steps.scripts.outputs.directory }}
         run: bash "$SCRIPTS/publish-image.sh"

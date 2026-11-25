@@ -15,26 +15,41 @@ on:
     inputs:
       package_name:
         type: string
-        description: The container package, usually the repository name.
-        required: true
+        description: >-
+          The container package, the name after the owner in service.yml's image_repository; empty
+          is the repository's name, lowercased, the package of image_repository's default.
+        default: ""
       min_versions_to_keep:
         type: number
         description: How many of the newest commits' images to keep, each with its platform images and attestations.
         default: 30
 
-# Permissions are inherited: callers grant packages: write.
+# Permissions are inherited: callers grant packages: write. GITHUB_TOKEN deletes a package's versions
+# with the admin role the repository whose workflow published the package holds on it.
 jobs:
   cleanup:
     name: Delete old image versions
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
+      - name: Find this repository's scripts
+        id: scripts
+        uses: $/.github/actions/scripts
+      # Lowercased, since the action names the package's registry path with the owner and package as
+      # given, and an image reference is lowercase.
+      - name: Find the package
+        id: package
+        env:
+          PACKAGE_NAME: ${{ inputs.package_name }}
+          SCRIPTS: ${{ steps.scripts.outputs.directory }}
+        run: bash "$SCRIPTS/package-name.sh"
       # Nothing younger than a day is touched, so a publish whose platform images are pushed but not
       # yet tagged keeps them.
       - name: Keep the newest images
         uses: dataaxiom/ghcr-cleanup-action@ac45a8c04b1eb4b27974ca79a0a74f344c93664b  # v1.3.0
         with:
-          package: ${{ inputs.package_name }}
+          owner: ${{ steps.package.outputs.owner }}
+          package: ${{ steps.package.outputs.package_name }}
           keep-n-tagged: ${{ inputs.min_versions_to_keep }}
           delete-untagged: true
           older-than: 1 day

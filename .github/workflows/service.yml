@@ -23,8 +23,10 @@ on:
         required: true
       image_repository:
         type: string
-        description: Where the image is published, such as ghcr.io/<owner>/<repository>.
-        required: true
+        description: >-
+          Where the image is published, lowercase; empty publishes to ghcr.io/<owner>/<repository>,
+          lowercased.
+        default: ""
       containerfile_target:
         type: string
         description: Containerfile stage to build; empty builds the last one.

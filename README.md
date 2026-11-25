@@ -26,7 +26,7 @@ repository with an unusual need can call too:
 | --- | --- |
 | `tests.yml` | swiftlang's `swift_package_test.yml` Linux job, with its input names and formats plus `postgres_image` and `valkey_image`, for a package that needs private dependencies, a Postgres or a Valkey, which swiftlang's workflow can't give |
 | `foundation_linking.yml` | Builds an empty executable that links every library product, and each executable product `executable_products` names, and fails when one links Foundation's full library or ICU; `excluded_products` names the products it skips |
-| `build_image.yml` | Builds the `Containerfile` once for each architecture `linux_host_archs` lists, each on a runner of its own, and checks it runs as an unprivileged user and links every runtime library; keeps its SBOM as an artifact and, on a pull request, fails on a critical vulnerability that has a fix; with `publish: true` on `main`, pushes each image by digest, runs the checks on the pushed image, reports such a vulnerability without failing, and tags the commit once as `:<commit-sha>` when every architecture passed |
+| `build_image.yml` | Builds the `Containerfile` once for each architecture `linux_host_archs` lists, each on a runner of its own, and checks it runs as an unprivileged user and links every runtime library; keeps its SBOM as an artifact and, on a pull request, fails on a critical vulnerability that has a fix; labels each image with the repository's OCI metadata; with `publish: true` on `main`, pushes each image by digest, runs the checks on the pushed image, reports such a vulnerability without failing, and tags the commit once as `:<commit-sha>` when every architecture passed, on an index annotated with the same metadata when there are several |
 
 ### Deployment adapters
 
@@ -50,6 +50,16 @@ adapter; another platform adds `deploy_<platform>.yml` with the same inputs wher
   names an index of them, from which Docker pulls each host's own; one keeps a plain image. Every
   caller requires the same `Build and validate image` check whatever the list.
 - Passing `PACKAGES_TOKEN` is what marks private dependencies; there's no other input for them.
+- A service's image is `ghcr.io/<owner>/<repository>`, lowercased, so its package on GHCR has the
+  repository's name and every workflow that takes `image_repository` finds it without one. An image
+  reference is lowercase while a GitHub owner or repository may not be, so an `image_repository`
+  with a capital fails before anything is built. Each image carries the OCI labels GHCR shows,
+  read from the repository: `org.opencontainers.image.source`, its URL, `.description`,
+  `.licenses` and `.revision`, the commit. An index of several architectures carries them as
+  annotations too, where GHCR reads a multi-architecture image's.
+- `GITHUB_TOKEN` publishes, attests, deploys and cleans up, and each job is granted only what it
+  needs, `packages: write` only where it pushes or deletes; no personal access token reaches the
+  registry.
 - The tests pass `-warnings-as-errors` and `--explicit-target-dependency-import-check error`, and a
   library also `-require-explicit-sendable`, which checks `public` declarations. Nightlies drop
   `-warnings-as-errors`. The image build passes none of them, so a warning a newer toolchain adds
@@ -179,7 +189,6 @@ jobs:
     uses: swift-microservices/ci/.github/workflows/service.yml@<commit>  # <release>
     with:
       executable_product: orders
-      image_repository: ghcr.io/<owner>/<repository>
       linux_host_archs: '["aarch64"]'  # the architectures the servers run
       postgres_image: postgres:<major>-alpine
       valkey_image: valkey/valkey:<major>-alpine  # only with Valkey tests
@@ -198,7 +207,6 @@ jobs:
     uses: swift-microservices/ci/.github/workflows/deploy_dokploy.yml@<commit>  # <release>
     with:
       environment: staging
-      image_repository: ghcr.io/<owner>/<repository>
       application_ids: '["<staging migrate id>", "<staging serve id>", "<staging worker id>"]'
       run_to_completion_application_ids: '["<staging migrate id>"]'
     secrets:
@@ -217,8 +225,6 @@ jobs:
       id-token: write
       attestations: write
     uses: swift-microservices/ci/.github/workflows/attest_image.yml@<commit>  # <release>
-    with:
-      image_repository: ghcr.io/<owner>/<repository>
 ```
 
 ```yaml
@@ -249,7 +255,6 @@ jobs:
     with:
       environment: production
       commit: ${{ inputs.commit }}
-      image_repository: ghcr.io/<owner>/<repository>
       application_ids: '["<production migrate id>", "<production serve id>", "<production worker id>"]'
       run_to_completion_application_ids: '["<production migrate id>"]'
     secrets:
@@ -275,14 +280,23 @@ jobs:
     permissions:
       packages: write
     uses: swift-microservices/ci/.github/workflows/cleanup_images.yml@<commit>  # <release>
-    with:
-      package_name: <repository>
 ```
+
+Each workflow that takes `image_repository` defaults it to `ghcr.io/<owner>/<repository>`,
+lowercased, and `cleanup_images.yml`'s `package_name` to the repository's name, lowercased. A
+service whose image has another name passes the same `image_repository` to every one of them, and
+the name after the owner as `package_name`.
 
 To put an older commit back on staging, re-run the Staging job of that commit's CI run.
 
 ## Requirements
 
+- **GitHub Container Registry**: the first push from the service's workflow creates the package,
+  linked to the repository by `GITHUB_TOKEN` and by the `org.opencontainers.image.source` label, so
+  it inherits the repository's access permissions and its workflows hold the admin role cleanup
+  deletes with. A package of that name that already exists, such as one pushed from a laptop,
+  refuses `GITHUB_TOKEN` until its settings connect it to the repository and give the repository
+  Actions access with the admin role.
 - **Secrets**, as repository secrets:
   - `PACKAGES_TOKEN`, only with private dependencies: a fine-grained token whose resource owner is
     the organization, limited to the private package repositories, with Contents read-only. It's a

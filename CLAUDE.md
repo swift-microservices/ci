@@ -18,8 +18,8 @@ specific to these workflows. Read it before adding or changing one.
   state, and an image of the wrong architecture fails only at deploy. Its inputs cover only what
   differs between repositories (platforms, products,
   Postgres, Valkey, docs targets); what it can read from the repository, it reads: the toolchain from
-  `swift-tools-version`, private dependencies from a passed `PACKAGES_TOKEN`, and the Protobuf check
-  from a `buf.yaml` at the root.
+  `swift-tools-version`, private dependencies from a passed `PACKAGES_TOKEN`, the Protobuf check
+  from a `buf.yaml` at the root, and the image's name and OCI metadata from the repository.
 - Deployment isn't part of a CI pipeline: `service.yml` ends at a published image, and a
   deployment adapter, `deploy_dokploy.yml`, deploys it. Another platform is another
   `deploy_<platform>.yml` with the same inputs where they apply and the same `Deploy <environment>`
@@ -73,6 +73,7 @@ specific to these workflows. Read it before adding or changing one.
     yet, the job notes it and passes.
 - Inside a workflow, prefer a maintained action to shell: `actions/checkout`,
   `docker/setup-buildx-action`, `docker/build-push-action`, `docker/login-action`,
+  `docker/metadata-action` (for its `labels` and `annotations` only: its `tags` never reach a push),
   `dataaxiom/ghcr-cleanup-action`. Shell is for what no action does well: the Foundation
   linking check, the image checks, a published image's digest and platforms, the architectures' digests, the staging gate, the OpenAPI
   document's presence in the base commit, and Dokploy's API.
@@ -119,6 +120,22 @@ specific to these workflows. Read it before adding or changing one.
   which `cleanup_images.yml` deletes. The `Build and validate image` job aggregates the
   matrix and fails unless every architecture passed, so callers require one check whatever the list.
   `attest_image.yml` attests the provenance to the tagged digest and an SBOM to each platform's.
+- **Image names and metadata.** `image_repository` defaults to `ghcr.io/<owner>/<repository>`,
+  lowercased, in every workflow that takes it, and `cleanup_images.yml`'s `package_name` to the
+  repository's name, lowercased, so the package has the repository's name. An image reference is
+  lowercase while a GitHub owner or repository may not be, so a given name with a capital fails
+  before anything is built. Each platform image carries `docker/metadata-action`'s OCI labels, read
+  from the repository: `org.opencontainers.image.source`, which links the package to the repository
+  from its first push so it inherits the repository's access permissions, `.description`,
+  `.licenses` and `.revision`, which GHCR shows on the package page. An index of several
+  architectures carries them as annotations too, where GHCR reads a multi-architecture image's; a
+  single image gets none, since `imagetools create` wraps an annotated image in an index. Images
+  are pushed with OCI media types, which an index's annotations need.
+- **Tokens.** `GITHUB_TOKEN` publishes, attests, deploys and cleans up; no personal access token
+  reaches the registry, and `PACKAGES_TOKEN` only reads private dependencies. Each job is granted
+  only what it needs: `packages: write` where it pushes or deletes, `packages: read` where it only
+  reads. Cleanup deletes with the admin role the repository whose workflow published a package
+  holds on it.
   The image is not started in CI; staging is where a release first runs. Every build keeps the
   image's SPDX SBOM as a workflow artifact (`anchore/sbom-action`) and scans it with
   `anchore/scan-action`. A pull request's build fails only on a critical vulnerability with a
@@ -150,7 +167,9 @@ specific to these workflows. Read it before adding or changing one.
   input names the check it configures, as swiftlang's `soundness.yml` does
   (`foundation_linking_check_excluded_products`); a building block's doesn't, since the workflow
   is its context (`foundation_linking.yml`'s `excluded_products`). A value the workflow can read
-  from the repository, such as the toolchain, isn't an input.
+  from the repository, such as the toolchain, isn't an input; one a repository may still need to
+  set, such as `image_repository`, is an input whose default the workflow reads from the
+  repository.
 - **Deprecation.** Renaming or removing a workflow, input or secret keeps the old one as a
   deprecated alias forwarding to the new for one release, and removes it in the next major
   release, so a repository moving its pin keeps working.
