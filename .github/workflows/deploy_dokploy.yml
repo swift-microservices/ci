@@ -4,28 +4,46 @@
 
 name: Deploy to Dokploy
 
-# Deploys a commit's image to each Dokploy application of an environment, in order, and waits for
+# Deploys an image to each Dokploy application of a GitHub environment, in order, and waits for
 # each to finish and for a container of the image to run, healthy when it has a health check, before
 # the next. An application that runs to completion, such as a migration, waits instead for its new
-# container to exit 0. Production takes only a commit whose push to main deployed it to staging,
-# which this workflow's job name, Deploy staging, records.
-
+# container to exit 0.
+#
+# The image is the one given, such as service.yml's image output, or, with promote_from, the one
+# another environment ran, so production runs only what staging ran, and an older commit's image
+# rolls back. Each run is recorded as a GitHub deployment of the commit to the environment, which
+# keeps the image for the next promotion. The job runs in the GitHub environment, so its
+# protection rules, such as required reviewers, and its secrets apply. One deployment at a time per
+# environment, never cancelled midway.
+#
+# A service's main.yml calls it for staging on each push, and its deploy.yml for production by
+# hand; the job that calls it grants contents: read and deployments: write.
 on:
   workflow_call:
     inputs:
       environment:
         type: string
-        description: staging or production.
+        description: The GitHub environment to deploy to, such as staging or production.
         required: true
-      commit:
+      environment_url:
         type: string
-        description: Commit whose image to deploy; empty means the commit the run is for, the latest on main.
+        description: Where the environment serves, shown on its deployments; empty shows none.
         default: ""
-      image_repository:
+      image:
+        type: string
+        description: The image to deploy by digest, such as service.yml's image output; empty with promote_from.
+        default: ""
+      promote_from:
         type: string
         description: >-
-          Where build_image.yml published the image, its image_repository; empty is its default,
-          ghcr.io/<owner>/<repository>, lowercased.
+          The environment whose image to deploy: the one its newest successful deployment of commit
+          ran. Empty with image.
+        default: ""
+      commit:
+        type: string
+        description: >-
+          The commit to deploy, a SHA or a ref; empty is the run's commit, or, with promote_from, the
+          newest promote_from ran. An older one rolls back.
         default: ""
       application_ids:
         type: string
@@ -48,12 +66,16 @@ on:
         description: A Dokploy API key that can read, update, and deploy the applications and read their containers.
         required: true
 
-# Permissions are inherited: callers grant contents: read, actions: read, and packages: read.
 jobs:
   deploy:
     name: Deploy ${{ inputs.environment }}
-    runs-on: ubuntu-24.04-arm
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
+    # The environment's rules and secrets apply; the deployment record is start-deployment.sh's,
+    # which names the commit deployed rather than the run's and keeps its image.
+    environment:
+      name: ${{ inputs.environment }}
+      deployment: false
     concurrency:
       group: deploy-${{ inputs.environment }}
       cancel-in-progress: false
@@ -61,35 +83,37 @@ jobs:
       - name: Find this repository's scripts
         id: scripts
         uses: $/.github/actions/scripts
-      - name: Find the image repository
-        id: repository
-        env:
-          IMAGE_REPOSITORY: ${{ inputs.image_repository }}
-          SCRIPTS: ${{ steps.scripts.outputs.directory }}
-        run: bash "$SCRIPTS/image-repository.sh"
-      - name: Log in to GitHub Container Registry
-        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550  # v4.8.0
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Resolve the commit's image
-        id: resolve
+      - name: Start the deployment
+        id: deployment
         env:
           GH_TOKEN: ${{ github.token }}
-          COMMIT: ${{ inputs.commit || github.sha }}
           TARGET_ENVIRONMENT: ${{ inputs.environment }}
-          IMAGE_REPOSITORY: ${{ steps.repository.outputs.image_repository }}
+          IMAGE: ${{ inputs.image }}
+          PROMOTE_FROM: ${{ inputs.promote_from }}
+          COMMIT: ${{ inputs.commit }}
+          ENVIRONMENT_URL: ${{ inputs.environment_url }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           SCRIPTS: ${{ steps.scripts.outputs.directory }}
-        run: bash "$SCRIPTS/resolve-image.sh"
+        run: bash "$SCRIPTS/start-deployment.sh"
       - name: Deploy each Dokploy application in order
         env:
           DOKPLOY_URL: ${{ secrets.DOKPLOY_URL }}
           DOKPLOY_TOKEN: ${{ secrets.DOKPLOY_TOKEN }}
           APPLICATION_IDS: ${{ inputs.application_ids }}
           RUN_TO_COMPLETION_APPLICATION_IDS: ${{ inputs.run_to_completion_application_ids }}
-          IMAGE: ${{ steps.resolve.outputs.image }}
-          COMMIT: ${{ steps.resolve.outputs.commit }}
+          IMAGE: ${{ steps.deployment.outputs.image }}
+          COMMIT: ${{ steps.deployment.outputs.commit }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           SCRIPTS: ${{ steps.scripts.outputs.directory }}
         run: bash "$SCRIPTS/deploy-dokploy.sh"
+      - name: Finish the deployment
+        if: ${{ always() && steps.deployment.outputs.deployment_id != '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DEPLOYMENT_ID: ${{ steps.deployment.outputs.deployment_id }}
+          JOB_STATUS: ${{ job.status }}
+          COMMIT: ${{ steps.deployment.outputs.commit }}
+          ENVIRONMENT_URL: ${{ inputs.environment_url }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          SCRIPTS: ${{ steps.scripts.outputs.directory }}
+        run: bash "$SCRIPTS/finish-deployment.sh"

@@ -4,24 +4,27 @@
 
 name: Attest image
 
-# Signs the build provenance of a commit's published image, and the SPDX SBOM of each of its
-# platforms' images, and pushes the attestations to the registry beside them, so anyone pulling the
-# image can verify which repository, commit and workflow built it, and what it contains, for as long
-# as the image is kept
-# (`gh attestation verify oci://<image> --owner <owner>`). A service whose repository GitHub stores
-# attestations for, a public one or a private one on GitHub Enterprise Cloud, calls it after
-# service.yml on a push to main; the job that calls it grants contents: read, packages: write,
-# id-token: write and attestations: write.
-
+# Signs the build provenance of a published image, and the SPDX SBOM of each of its platforms'
+# images, and pushes the attestations to the registry beside them, so anyone pulling the image can
+# verify which repository, commit and workflow built it, and what it contains, for as long as the
+# image is kept (`gh attestation verify oci://<image> --owner <owner>`). A service whose repository
+# GitHub stores attestations for, a public one or a private one on GitHub Enterprise Cloud, calls it
+# after service.yml with its `image` output; the job that calls it grants contents: read,
+# packages: write, id-token: write and attestations: write.
 on:
   workflow_call:
     inputs:
-      image_repository:
+      image:
         type: string
-        description: >-
-          Where service.yml published the image, its image_repository; empty is its default,
-          ghcr.io/<owner>/<repository>, lowercased.
-        default: ""
+        description: The image to attest by digest, such as service.yml's image output.
+        required: true
+    secrets:
+      REGISTRY_USERNAME:
+        description: Username for a registry other than ghcr.io; ghcr.io takes GITHUB_TOKEN.
+        required: false
+      REGISTRY_PASSWORD:
+        description: Password or token for a registry other than ghcr.io.
+        required: false
 
 jobs:
   attest:
@@ -30,33 +33,30 @@ jobs:
     timeout-minutes: 15
     outputs:
       image_repository: ${{ steps.repository.outputs.image_repository }}
+      registry: ${{ steps.repository.outputs.registry }}
       platforms: ${{ steps.platforms.outputs.platforms }}
     steps:
       - name: Find this repository's scripts
         id: scripts
         uses: $/.github/actions/scripts
-      - name: Find the image repository
+      - name: Find the image
         id: repository
         env:
-          IMAGE_REPOSITORY: ${{ inputs.image_repository }}
+          IMAGE_REPOSITORY: ${{ inputs.image }}
+          LOGIN: true
+          REGISTRY_CREDENTIALS: ${{ secrets.REGISTRY_PASSWORD != '' }}
           SCRIPTS: ${{ steps.scripts.outputs.directory }}
         run: bash "$SCRIPTS/image-repository.sh"
-      - name: Log in to GitHub Container Registry
+      - name: Log in to the registry
         uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550  # v4.8.0
         with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Find the image's digest
-        id: image
-        env:
-          IMAGE_REPOSITORY: ${{ steps.repository.outputs.image_repository }}
-          SCRIPTS: ${{ steps.scripts.outputs.directory }}
-        run: bash "$SCRIPTS/image-digest.sh"
+          registry: ${{ steps.repository.outputs.registry }}
+          username: ${{ secrets.REGISTRY_USERNAME || github.actor }}
+          password: ${{ secrets.REGISTRY_PASSWORD || secrets.GITHUB_TOKEN }}
       - name: Find the image's platforms
         id: platforms
         env:
-          DIGEST: ${{ steps.image.outputs.digest }}
+          DIGEST: ${{ steps.repository.outputs.digest }}
           IMAGE_REPOSITORY: ${{ steps.repository.outputs.image_repository }}
           SCRIPTS: ${{ steps.scripts.outputs.directory }}
         run: bash "$SCRIPTS/image-platforms.sh"
@@ -64,7 +64,7 @@ jobs:
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8  # v4.2.2
         with:
           subject-name: ${{ steps.repository.outputs.image_repository }}
-          subject-digest: ${{ steps.image.outputs.digest }}
+          subject-digest: ${{ steps.repository.outputs.digest }}
           push-to-registry: true
 
   # An SBOM per platform, attested to that platform's own digest: an index holds no packages of its
@@ -74,17 +74,17 @@ jobs:
     needs: [attest]
     strategy:
       matrix:
-        include: ${{ fromJson(needs.attest.outputs.platforms) }}
+        include: ${{ fromJSON(needs.attest.outputs.platforms) }}
     # The platform's own runner, so syft reads the image as it was built.
     runs-on: ${{ startsWith(matrix.platform, 'linux/arm64') && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
     timeout-minutes: 15
     steps:
-      - name: Log in to GitHub Container Registry
+      - name: Log in to the registry
         uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550  # v4.8.0
         with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          registry: ${{ needs.attest.outputs.registry }}
+          username: ${{ secrets.REGISTRY_USERNAME || github.actor }}
+          password: ${{ secrets.REGISTRY_PASSWORD || secrets.GITHUB_TOKEN }}
       # The build's SBOM artifact expires with the run's artifacts; attested, the SBOM lasts as long as
       # the image, including an older one a rollback deploys.
       - name: List the image's packages

@@ -4,11 +4,12 @@
 
 name: Foundation linking
 
-# Checks that a package's products link neither Foundation's full library nor ICU, so code that
-# imports FoundationEssentials keeps services small. It builds an empty executable depending on every
-# library product, and each executable product named in executable_products, and fails when one of
-# them links Foundation. Builds are dynamic, since ldd sees nothing in a static binary.
-# swiftlang/github-workflows has no such check.
+# Checks that a package's products, library and executable, link neither Foundation's full library
+# nor ICU, so code that imports FoundationEssentials keeps the binaries that use it small. It builds
+# an empty executable depending on every library product, and each executable product, and fails
+# when one of them links Foundation. Builds are dynamic, since ldd sees nothing in a static binary,
+# and use the committed Package.resolved when there is one. swiftlang/github-workflows has no such
+# check. The pipelines call it on every event; the caller grants contents: read.
 on:
   workflow_call:
     inputs:
@@ -19,12 +20,8 @@ on:
       excluded_products:
         type: string
         description: >-
-          Products, library or executable, that still link Foundation through a dependency
-          (JSON list). They aren't checked; removing one from the list checks it again.
-        default: "[]"
-      executable_products:
-        type: string
-        description: Executable products to check as well, such as a service's (JSON list).
+          Products that still link Foundation through a dependency (JSON list). They aren't
+          checked; removing one from the list checks it again.
         default: "[]"
     secrets:
       PACKAGES_TOKEN:
@@ -60,6 +57,5 @@ jobs:
       - name: Check the products
         env:
           EXCLUDED_PRODUCTS: ${{ join(fromJSON(inputs.excluded_products), ' ') }}
-          EXECUTABLE_PRODUCTS: ${{ join(fromJSON(inputs.executable_products), ' ') }}
           SCRIPTS: ${{ steps.scripts.outputs.directory }}
         run: bash "$SCRIPTS/check-foundation-linking.sh"

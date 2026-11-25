@@ -14,6 +14,10 @@
 
 set -euo pipefail
 
+case "$DIGEST" in
+  sha256:*) ;;
+  *) echo "::error::The image must name its digest, as <repository>[:<tag>]@sha256:<hex>"; exit 1 ;;
+esac
 image="$IMAGE_REPOSITORY@$DIGEST"
 manifest=$(docker buildx imagetools inspect "$image" --raw)
 case "$(jq -r '.mediaType // empty' <<<"$manifest")" in

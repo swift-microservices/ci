@@ -4,70 +4,106 @@
 
 name: Service
 
-# A Swift service's whole CI. On a pull request: Soundness, Tests, Foundation linking, a validated
-# image and, with openapi_breakage_check_path, OpenAPI breakage. On a push to main: Tests and
-# Foundation linking, then the image published once as :<commit-sha>. Any other run validates the
-# image without publishing it. Soundness, Tests and Foundation linking run on the package's
-# swift-tools-version, the toolchain its Containerfile builds with. Tests and the image cover each
-# architecture linux_host_archs lists, which every caller states; several share one published index.
+# A Swift service's CI, for its pull_request.yml and main.yml. On a pull request: Soundness, Tests,
+# Foundation linking, the image built and checked without leaving the runner, and, with
+# openapi_breakage_check_path, OpenAPI breakage. On a push to the default branch: Tests, Foundation
+# linking and the image, pushed by digest, then, once all three pass, published as :<commit-sha>
+# and named by the `image` output, which a deployment workflow takes. Passed fails when any of them
+# failed, so a ruleset requires that one check.
 #
-# Deployment isn't part of it: the service's CI workflow calls a deployment workflow, such as
-# deploy_dokploy.yml, after this one. The caller grants contents: read and packages: write, since a
-# called workflow can't hold more than its caller gives it.
+# A service runs on its servers alone, so it tests and builds only for the architectures they run,
+# which it states in linux_host_archs, and on one toolchain, the package's swift-tools-version, which
+# its Containerfile builds with too.
+#
+# Deployment isn't part of it: the service's main.yml calls a deployment workflow, such as
+# deploy_dokploy.yml, with the `image` output. Permissions are inherited: pull_request.yml grants
+# contents: read, main.yml contents: read and packages: write.
 on:
   workflow_call:
     inputs:
-      executable_product:
-        type: string
-        description: The executable product the image runs and the Foundation linking check builds.
-        required: true
-      image_repository:
-        type: string
-        description: >-
-          Where the image is published, lowercase; empty publishes to ghcr.io/<owner>/<repository>,
-          lowercased.
-        default: ""
-      containerfile_target:
-        type: string
-        description: Containerfile stage to build; empty builds the last one.
-        default: ""
       linux_host_archs:
         type: string
         description: >-
-          Architectures the tests run on and the image is built for, x86_64 or aarch64 (JSON list):
-          the ones the deployment's servers run.
+          Architectures the service's servers run, x86_64 or aarch64 (JSON list): the tests run on
+          each, and the image is built for each.
         required: true
+      # Tests, on Linux, as swiftlang's package_test.yml names them.
+      linux_setup_command:
+        type: string
+        description: Command run before linux_command, from the repository's root.
+        default: ""
+      linux_command:
+        type: string
+        description: Command that builds and tests the package, at its committed Package.resolved.
+        default: swift test --disable-automatic-resolution
+      linux_env_vars:
+        type: string
+        description: Environment variables the tests read (JSON object).
+        default: "{}"
+      postgres_image:
+        type: string
+        description: Postgres image started beside the tests, such as postgres:18-alpine; empty starts none.
+        default: ""
+      valkey_image:
+        type: string
+        description: Valkey image started beside the tests, such as valkey/valkey:9-alpine; empty starts none.
+        default: ""
+      # Soundness, as swiftlang's soundness.yml names its checks.
+      format_check_enabled:
+        type: boolean
+        description: Check the formatting against .swift-format.
+        default: true
       license_header_check_enabled:
         type: boolean
         description: Check every file's license header against .license_header_template.
         default: true
-      postgres_image:
-        type: string
-        description: Postgres image started beside the tests, such as postgres:<major>-alpine; empty starts none.
-        default: ""
-      valkey_image:
-        type: string
-        description: Valkey image started beside the tests, such as valkey/valkey:<major>-alpine; empty starts none.
-        default: ""
+      # Foundation linking.
+      foundation_linking_check_enabled:
+        type: boolean
+        description: Fail when a product links Foundation's full library or ICU.
+        default: true
       foundation_linking_check_excluded_products:
         type: string
         description: >-
           Products the Foundation linking check skips while they link Foundation through a
-          dependency, usually executable_product (JSON list); removing one checks it again.
+          dependency (JSON list); removing one checks it again.
         default: "[]"
+      # OpenAPI breakage.
       openapi_breakage_check_path:
         type: string
         description: >-
           Path of the OpenAPI document the service serves, such as Sources/<Target>/openapi.yaml; a
           pull request that breaks its clients against the base fails. Empty checks none.
         default: ""
+      # Image.
+      image_repository:
+        type: string
+        description: Where the image is published, lowercase; empty is ghcr.io/<owner>/<repository>, lowercased.
+        default: ""
+      containerfile:
+        type: string
+        description: Path of the Containerfile or Dockerfile, from the repository's root.
+        default: Containerfile
+      containerfile_target:
+        type: string
+        description: Stage to build; empty builds the last one.
+        default: ""
     secrets:
       PACKAGES_TOKEN:
         description: Token with read access to the private repositories the package depends on, if any.
         required: false
-
-permissions:
-  contents: read
+      REGISTRY_USERNAME:
+        description: Username for a registry other than ghcr.io; ghcr.io takes GITHUB_TOKEN.
+        required: false
+      REGISTRY_PASSWORD:
+        description: Password or token for a registry other than ghcr.io.
+        required: false
+    outputs:
+      image:
+        description: >-
+          The image published by a push to the default branch, <image_repository>:<commit-sha>@sha256:<hex>;
+          empty on any other run.
+        value: ${{ jobs.publish.outputs.image }}
 
 jobs:
   setup:
@@ -76,6 +112,7 @@ jobs:
     timeout-minutes: 5
     outputs:
       swift_version: ${{ steps.package.outputs.swift_version }}
+      publish: ${{ github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
     steps:
       - name: Checkout Package.swift
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -89,7 +126,6 @@ jobs:
       - name: Read the toolchain
         id: package
         env:
-          PACKAGES_TOKEN: ${{ secrets.PACKAGES_TOKEN }}
           SCRIPTS: ${{ steps.scripts.outputs.directory }}
         run: bash "$SCRIPTS/inspect-package.sh"
 
@@ -100,19 +136,23 @@ jobs:
     uses: swiftlang/github-workflows/.github/workflows/soundness.yml@e8b910942e79fb2c0654a87804d8f16e2304285c  # 0.0.19
     with:
       api_breakage_check_enabled: false
-      license_header_check_enabled: ${{ inputs.license_header_check_enabled }}
       docs_check_enabled: false
+      format_check_enabled: ${{ inputs.format_check_enabled }}
       format_check_container_image: swift:${{ needs.setup.outputs.swift_version }}-noble
+      license_header_check_enabled: ${{ inputs.license_header_check_enabled }}
 
+  # The flags hold the commit to no warnings. The image build passes none, so a warning a newer
+  # toolchain adds never blocks a deploy or a hotfix.
   tests:
     name: Tests
     needs: [setup]
     uses: $/.github/workflows/tests.yml
     with:
-      linux_swift_versions: ${{ format('["{0}"]', needs.setup.outputs.swift_version) }}
-      linux_os_versions: '["noble"]'
+      linux_swift_versions: '["${{ needs.setup.outputs.swift_version }}"]'
       linux_host_archs: ${{ inputs.linux_host_archs }}
-      linux_build_command: swift test --disable-automatic-resolution
+      linux_setup_command: ${{ inputs.linux_setup_command }}
+      linux_command: ${{ inputs.linux_command }}
+      linux_env_vars: ${{ inputs.linux_env_vars }}
       swift_flags: -Xswiftc -warnings-as-errors --explicit-target-dependency-import-check error
       postgres_image: ${{ inputs.postgres_image }}
       valkey_image: ${{ inputs.valkey_image }}
@@ -122,10 +162,10 @@ jobs:
   foundation-linking:
     name: Foundation linking
     needs: [setup]
+    if: ${{ inputs.foundation_linking_check_enabled }}
     uses: $/.github/workflows/foundation_linking.yml
     with:
       container_image: swift:${{ needs.setup.outputs.swift_version }}-noble
-      executable_products: ${{ format('["{0}"]', inputs.executable_product) }}
       excluded_products: ${{ inputs.foundation_linking_check_excluded_products }}
     secrets:
       PACKAGES_TOKEN: ${{ secrets.PACKAGES_TOKEN }}
@@ -165,31 +205,46 @@ jobs:
           review: false
           github-token: ""
 
+  # Built beside the tests. On the default branch each architecture's image is pushed by digest,
+  # untagged, and only publish names it, once the tests pass.
   image:
-    name: Build image
-    if: ${{ github.event_name != 'push' || github.ref != 'refs/heads/main' }}
+    name: Image
+    needs: [setup]
     uses: $/.github/workflows/build_image.yml
     with:
-      executable_product: ${{ inputs.executable_product }}
-      image_repository: ${{ inputs.image_repository }}
-      containerfile_target: ${{ inputs.containerfile_target }}
       linux_host_archs: ${{ inputs.linux_host_archs }}
+      image_repository: ${{ inputs.image_repository }}
+      containerfile: ${{ inputs.containerfile }}
+      containerfile_target: ${{ inputs.containerfile_target }}
+      push: ${{ needs.setup.outputs.publish == 'true' }}
     secrets:
       PACKAGES_TOKEN: ${{ secrets.PACKAGES_TOKEN }}
+      REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
+      REGISTRY_PASSWORD: ${{ secrets.REGISTRY_PASSWORD }}
 
   publish:
-    name: Publish image
-    needs: [tests, foundation-linking]
-    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
-    permissions:
-      contents: read
-      packages: write
-    uses: $/.github/workflows/build_image.yml
+    name: Publish
+    needs: [setup, tests, foundation-linking, image]
+    if: ${{ !failure() && !cancelled() && needs.setup.outputs.publish == 'true' }}
+    uses: $/.github/workflows/publish_image.yml
     with:
-      executable_product: ${{ inputs.executable_product }}
       image_repository: ${{ inputs.image_repository }}
-      containerfile_target: ${{ inputs.containerfile_target }}
-      linux_host_archs: ${{ inputs.linux_host_archs }}
-      publish: true
     secrets:
-      PACKAGES_TOKEN: ${{ secrets.PACKAGES_TOKEN }}
+      REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
+      REGISTRY_PASSWORD: ${{ secrets.REGISTRY_PASSWORD }}
+
+  passed:
+    name: Passed
+    needs: [setup, soundness, tests, foundation-linking, openapi-breakage, image, publish]
+    if: ${{ always() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Find this repository's scripts
+        id: scripts
+        uses: $/.github/actions/scripts
+      - name: Check every job's result
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+          SCRIPTS: ${{ steps.scripts.outputs.directory }}
+        run: bash "$SCRIPTS/check-results.sh"

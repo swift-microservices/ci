@@ -4,55 +4,63 @@
 
 name: Tests
 
-# swiftlang/github-workflows' swift_package_test.yml for a package that needs what that workflow can't
-# give: private dependencies, since it takes no secrets (swiftlang/github-workflows#59), or a Postgres
-# or Valkey beside the tests, since it starts no service containers. This one runs the same Linux job,
-# with the same input names, after giving SwiftPM a token when there is one and starting Postgres and
-# Valkey when their images are given. A package that needs none of them calls swiftlang's workflow
-# directly.
+# Runs a package's tests on Linux, once for each toolchain swiftlang's toolchain_matrix.yml lists,
+# as swiftlang's package_test.yml does, with what package_test.yml can't give: the private
+# dependencies PACKAGES_TOKEN reads (swiftlang/github-workflows#59), and a Postgres or a Valkey
+# beside the tests. Its inputs keep package_test.yml's names, formats and defaults, and add only
+# postgres_image and valkey_image. Each toolchain runs in its Swift image, on a runner of its
+# architecture, so nothing runs under emulation. The pipelines call it on every event; the caller
+# grants contents: read.
 on:
   workflow_call:
     inputs:
       linux_swift_versions:
         type: string
-        description: Swift versions to test with (JSON list).
-        default: '["6.3"]'
-      linux_os_versions:
-        type: string
-        description: Ubuntu versions to test on (JSON list).
-        default: '["noble"]'
+        description: >-
+          Swift versions to test on (JSON list): releases such as "6.3", or current, current-1,
+          current-2, nightly-release and nightly-main. Empty is current-2 through nightly-main.
+          Versions below the package's swift-tools-version are left out.
+        default: ""
       linux_host_archs:
         type: string
-        description: Host architectures, x86_64 or aarch64 (JSON list).
-        required: true
-      linux_pre_build_command:
+        description: Architectures to test on, x86_64 or aarch64 (JSON list).
+        default: '["x86_64"]'
+      linux_os:
         type: string
-        description: Command to run before the build command.
+        description: Distributions the Swift images are tagged for, such as noble (JSON list).
+        default: '["noble"]'
+      linux_setup_command:
+        type: string
+        description: Command run before linux_command, from the repository's root.
         default: ""
-      linux_build_command:
+      linux_command:
         type: string
-        description: Command that builds and tests the package; swift_flags are appended.
+        description: Command that builds and tests the package; swift_flags or swift_nightly_flags are appended.
         default: swift test
+      linux_env_vars:
+        type: string
+        description: Environment variables the tests read (JSON object).
+        default: "{}"
       swift_flags:
         type: string
-        description: Flags appended to the build command.
+        description: Flags appended to linux_command on a release toolchain.
         default: ""
       swift_nightly_flags:
         type: string
-        description: Flags appended to the build command on nightly toolchains; empty uses swift_flags.
+        description: Flags appended to linux_command on a nightly toolchain.
         default: ""
       postgres_image:
         type: string
         description: >-
           Postgres image started beside the tests, such as postgres:18-alpine; empty starts none. The
-          tests reach it through POSTGRES_HOST, POSTGRES_PORT, POSTGRES_USER, POSTGRES_PASSWORD, and
+          tests reach it through POSTGRES_HOST, POSTGRES_PORT, POSTGRES_USER, POSTGRES_PASSWORD and
           POSTGRES_DB.
         default: ""
       valkey_image:
         type: string
         description: >-
-          Valkey image started beside the tests, such as valkey/valkey:<major>-alpine; empty starts
-          none. The tests reach it through VALKEY_HOST and VALKEY_PORT.
+          Valkey image started beside the tests, such as valkey/valkey:9-alpine; empty starts none.
+          The tests reach it through VALKEY_HOST and VALKEY_PORT.
         default: ""
     secrets:
       PACKAGES_TOKEN:
@@ -63,18 +71,50 @@ permissions:
   contents: read
 
 jobs:
+  toolchains:
+    name: Toolchains
+    uses: swiftlang/github-workflows/.github/workflows/toolchain_matrix.yml@e8b910942e79fb2c0654a87804d8f16e2304285c  # 0.0.19
+    with:
+      linux_swift_versions: ${{ inputs.linux_swift_versions }}
+      linux_host_archs: ${{ inputs.linux_host_archs }}
+      linux_os: ${{ inputs.linux_os }}
+      linux_use_docker: true
+
+  prepare:
+    name: Prepare tests
+    needs: [toolchains]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      include: ${{ steps.prepare.outputs.include }}
+      environment: ${{ steps.prepare.outputs.environment }}
+    steps:
+      - name: Find this repository's scripts
+        id: scripts
+        uses: $/.github/actions/scripts
+      - name: Prepare the matrix and environment
+        id: prepare
+        env:
+          MATRIX_YAML: ${{ needs.toolchains.outputs.matrix_yaml }}
+          SWIFT_FLAGS: ${{ inputs.swift_flags }}
+          SWIFT_NIGHTLY_FLAGS: ${{ inputs.swift_nightly_flags }}
+          LINUX_ENV_VARS: ${{ inputs.linux_env_vars }}
+          POSTGRES_IMAGE: ${{ inputs.postgres_image }}
+          VALKEY_IMAGE: ${{ inputs.valkey_image }}
+          SCRIPTS: ${{ steps.scripts.outputs.directory }}
+        run: bash "$SCRIPTS/prepare-tests.sh"
+
   linux:
-    name: Linux (${{ matrix.swift_version }} - ${{ matrix.os_version }} - ${{ matrix.arch }})
-    runs-on: ${{ matrix.arch == 'aarch64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
+    name: ${{ matrix.name }}
+    needs: [prepare]
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
-        swift_version: ${{ fromJson(inputs.linux_swift_versions) }}
-        os_version: ${{ fromJson(inputs.linux_os_versions) }}
-        arch: ${{ fromJson(inputs.linux_host_archs) }}
+        include: ${{ fromJSON(needs.prepare.outputs.include) }}
     container:
-      image: ${{ contains(matrix.swift_version, 'nightly') && 'swiftlang/swift' || 'swift' }}:${{ matrix.swift_version }}-${{ matrix.os_version }}
+      image: ${{ matrix.image }}
     services:
       postgres:
         # An empty image starts no service.
@@ -109,22 +149,13 @@ jobs:
           PACKAGES_TOKEN: ${{ secrets.PACKAGES_TOKEN }}
           SCRIPTS: ${{ steps.scripts.outputs.directory }}
         run: bash "$SCRIPTS/configure-netrc.sh"
-      - name: Point the tests at Postgres
-        # Only when Postgres runs; without it, POSTGRES_HOST and the rest stay unset.
-        if: ${{ inputs.postgres_image != '' }}
+      - name: Set the tests' environment
         env:
+          ENVIRONMENT: ${{ needs.prepare.outputs.environment }}
           SCRIPTS: ${{ steps.scripts.outputs.directory }}
-        run: bash "$SCRIPTS/point-tests-at-postgres.sh"
-      - name: Point the tests at Valkey
-        # Only when Valkey runs; without it, VALKEY_HOST and VALKEY_PORT stay unset.
-        if: ${{ inputs.valkey_image != '' }}
-        env:
-          SCRIPTS: ${{ steps.scripts.outputs.directory }}
-        run: bash "$SCRIPTS/point-tests-at-valkey.sh"
-      - name: Pre-build
-        if: ${{ inputs.linux_pre_build_command != '' }}
-        run: ${{ inputs.linux_pre_build_command }}
+        run: bash "$SCRIPTS/export-environment.sh"
+      - name: Set up
+        if: ${{ inputs.linux_setup_command != '' }}
+        run: ${{ inputs.linux_setup_command }}
       - name: Build and test
-        run: >-
-          ${{ inputs.linux_build_command }}
-          ${{ (contains(matrix.swift_version, 'nightly') && inputs.swift_nightly_flags) || inputs.swift_flags }}
+        run: ${{ inputs.linux_command }} ${{ matrix.flags }}
