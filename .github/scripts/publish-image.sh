@@ -3,11 +3,14 @@
 ## SPDX-License-Identifier: MIT
 ## See LICENSE for license information.
 
-# Pushes the image once as <repository>:<commit-sha>, only from main.
+# Tags the images each architecture pushed by digest once as <repository>:<commit-sha>, only from
+# main. One architecture's image keeps its own manifest; several share one index, from which Docker
+# pulls each host's own.
 #
 # Environment:
-# - CI_IMAGE: the image built for this commit.
+# - DIGESTS_DIRECTORY: an empty file per architecture's image, named for its digest's hex.
 # - IMAGE_REPOSITORY: where it's published.
+# - GITHUB_REF, GITHUB_SHA: set by GitHub Actions.
 
 set -euo pipefail
 
@@ -21,5 +24,14 @@ if docker buildx imagetools inspect "$commit_tag" > /dev/null 2>&1; then
   echo "$commit_tag is already published"
   exit 0
 fi
-docker tag "$CI_IMAGE" "$commit_tag"
-docker push "$commit_tag"
+sources=()
+for file in "$DIGESTS_DIRECTORY"/*; do
+  [ -f "$file" ] || continue
+  sources+=("$IMAGE_REPOSITORY@sha256:$(basename "$file")")
+done
+if [ "${#sources[@]}" -eq 0 ]; then
+  echo "::error::No architecture pushed an image to publish"
+  exit 1
+fi
+docker buildx imagetools create --prefer-index=false --tag "$commit_tag" "${sources[@]}"
+docker buildx imagetools inspect "$commit_tag"

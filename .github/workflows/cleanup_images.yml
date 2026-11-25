@@ -4,6 +4,12 @@
 
 name: Clean up images
 
+# Keeps the newest commits' images and deletes the rest, with each image's platform images and
+# attestations, and deletes untagged uploads a failed publish left. A multi-architecture image is
+# one index and a platform image per architecture, and each attestation is a package version of its
+# own, so counting package versions would split an image and break the oldest one kept; the action
+# counts tagged images and keeps every version one of them needs.
+
 on:
   workflow_call:
     inputs:
@@ -13,7 +19,7 @@ on:
         required: true
       min_versions_to_keep:
         type: number
-        description: How many of the newest image versions to keep.
+        description: How many of the newest commits' images to keep, each with its platform images and attestations.
         default: 30
 
 # Permissions are inherited: callers grant packages: write.
@@ -23,9 +29,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Keep the newest versions
-        uses: actions/delete-package-versions@e5bc658cc4c965c472efe991f8beea3981499c55  # v5.0.0
+      # Nothing younger than a day is touched, so a publish whose platform images are pushed but not
+      # yet tagged keeps them.
+      - name: Keep the newest images
+        uses: dataaxiom/ghcr-cleanup-action@ac45a8c04b1eb4b27974ca79a0a74f344c93664b  # v1.3.0
         with:
-          package-name: ${{ inputs.package_name }}
-          package-type: container
-          min-versions-to-keep: ${{ inputs.min_versions_to_keep }}
+          package: ${{ inputs.package_name }}
+          keep-n-tagged: ${{ inputs.min_versions_to_keep }}
+          delete-untagged: true
+          older-than: 1 day

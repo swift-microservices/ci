@@ -4,9 +4,10 @@
 
 name: Attest image
 
-# Signs the build provenance and the SPDX SBOM of a commit's published image and pushes both
-# attestations to the registry beside it, so anyone pulling the image can verify which repository,
-# commit and workflow built it, and what it contains, for as long as the image is kept
+# Signs the build provenance of a commit's published image, and the SPDX SBOM of each of its
+# platforms' images, and pushes the attestations to the registry beside them, so anyone pulling the
+# image can verify which repository, commit and workflow built it, and what it contains, for as long
+# as the image is kept
 # (`gh attestation verify oci://<image> --owner <owner>`). A service whose repository GitHub stores
 # attestations for, a public one or a private one on GitHub Enterprise Cloud, calls it after
 # service.yml on a push to main; the job that calls it grants contents: read, packages: write,
@@ -23,9 +24,10 @@ on:
 jobs:
   attest:
     name: Attest image
-    # The image's platform, linux/arm64, so syft reads the published image as it was built.
-    runs-on: ubuntu-24.04-arm
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
+    outputs:
+      platforms: ${{ steps.platforms.outputs.platforms }}
     steps:
       - name: Find this repository's scripts
         id: scripts
@@ -42,18 +44,44 @@ jobs:
           IMAGE_REPOSITORY: ${{ inputs.image_repository }}
           SCRIPTS: ${{ steps.scripts.outputs.directory }}
         run: bash "$SCRIPTS/image-digest.sh"
+      - name: Find the image's platforms
+        id: platforms
+        env:
+          DIGEST: ${{ steps.image.outputs.digest }}
+          IMAGE_REPOSITORY: ${{ inputs.image_repository }}
+          SCRIPTS: ${{ steps.scripts.outputs.directory }}
+        run: bash "$SCRIPTS/image-platforms.sh"
       - name: Attest the build provenance
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8  # v4.2.2
         with:
           subject-name: ${{ inputs.image_repository }}
           subject-digest: ${{ steps.image.outputs.digest }}
           push-to-registry: true
+
+  # An SBOM per platform, attested to that platform's own digest: an index holds no packages of its
+  # own, and each architecture's image may hold different ones.
+  sbom:
+    name: Attest SBOM (${{ matrix.platform }})
+    needs: [attest]
+    strategy:
+      matrix:
+        include: ${{ fromJson(needs.attest.outputs.platforms) }}
+    # The platform's own runner, so syft reads the image as it was built.
+    runs-on: ${{ startsWith(matrix.platform, 'linux/arm64') && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
+    timeout-minutes: 15
+    steps:
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550  # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
       # The build's SBOM artifact expires with the run's artifacts; attested, the SBOM lasts as long as
       # the image, including an older one a rollback deploys.
       - name: List the image's packages
         uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c  # v0.24.3
         with:
-          image: ${{ inputs.image_repository }}@${{ steps.image.outputs.digest }}
+          image: ${{ inputs.image_repository }}@${{ matrix.digest }}
           format: spdx-json
           output-file: sbom.spdx.json
           upload-artifact: false
@@ -62,6 +90,6 @@ jobs:
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6  # v4.2.2
         with:
           subject-name: ${{ inputs.image_repository }}
-          subject-digest: ${{ steps.image.outputs.digest }}
+          subject-digest: ${{ matrix.digest }}
           sbom-path: sbom.spdx.json
           push-to-registry: true

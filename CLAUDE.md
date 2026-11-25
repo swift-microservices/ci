@@ -13,8 +13,10 @@ specific to these workflows. Read it before adding or changing one.
   `deploy_dokploy.yml` (staging and production), `cleanup_images.yml` and, where GitHub stores its
   attestations, `attest_image.yml`. A change every repository needs (a flag, a check, a pin) is
   made here once and reaches them through the pin Dependabot moves.
-- A CI pipeline holds the standard: which jobs run on which event, the default platforms, and the
-  strict flags. Its inputs cover only what differs between repositories (platforms, products,
+- A CI pipeline holds the standard: which jobs run on which event, the default toolchains, and the
+  strict flags. `linux_host_archs` has no default: where a package runs is each repository's to
+  state, and an image of the wrong architecture fails only at deploy. Its inputs cover only what
+  differs between repositories (platforms, products,
   Postgres, Valkey, docs targets); what it can read from the repository, it reads: the toolchain from
   `swift-tools-version`, private dependencies from a passed `PACKAGES_TOKEN`, and the Protobuf check
   from a `buf.yaml` at the root.
@@ -71,8 +73,8 @@ specific to these workflows. Read it before adding or changing one.
     yet, the job notes it and passes.
 - Inside a workflow, prefer a maintained action to shell: `actions/checkout`,
   `docker/setup-buildx-action`, `docker/build-push-action`, `docker/login-action`,
-  `actions/delete-package-versions`. Shell is for what no action does well: the Foundation
-  linking check, the image checks, a published image's digest, the staging gate, the OpenAPI
+  `dataaxiom/ghcr-cleanup-action`. Shell is for what no action does well: the Foundation
+  linking check, the image checks, a published image's digest and platforms, the architectures' digests, the staging gate, the OpenAPI
   document's presence in the base commit, and Dokploy's API.
 - This repository's own pull requests reuse swiftlang's `soundness.yml` (YAML lint, license
   headers, unacceptable language, broken symlinks) and add only actionlint, which swiftlang lacks,
@@ -106,8 +108,17 @@ specific to these workflows. Read it before adding or changing one.
   `docker.getContainersByAppNameMatch`, `docker.getConfig`) with the `x-api-key` header. Docker's
   `ps` and `inspect` see only the containers on the application's server, so a Swarm that spreads
   an application across nodes must run one on the server Dokploy deploys from.
-- **Images.** A `Containerfile` at the repository root builds a linux/arm64 image that runs as an
-  unprivileged user and has the product at `/app/<product>`, with every runtime library it links.
+- **Images.** A `Containerfile` at the repository root builds an image for each architecture in
+  `linux_host_archs` (linux/arm64 for aarch64, linux/amd64 for x86_64), each built once on a
+  runner of that architecture, that runs as an unprivileged user and has the product at
+  `/app/<product>`, with every runtime library it links. A pull request loads it locally and
+  pushes nothing. Publishing pushes each by digest, untagged, pulls that digest back for the
+  checks, so the image checked is the image published, and writes the commit's tag once every
+  architecture passed, with `imagetools create --prefer-index=false`: one architecture's image
+  keeps its own manifest, several share an index. A failed check leaves only an untagged upload,
+  which `cleanup_images.yml` deletes. The `Build and validate image` job aggregates the
+  matrix and fails unless every architecture passed, so callers require one check whatever the list.
+  `attest_image.yml` attests the provenance to the tagged digest and an SBOM to each platform's.
   The image is not started in CI; staging is where a release first runs. Every build keeps the
   image's SPDX SBOM as a workflow artifact (`anchore/sbom-action`) and scans it with
   `anchore/scan-action`. A pull request's build fails only on a critical vulnerability with a

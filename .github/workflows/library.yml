@@ -10,7 +10,7 @@ name: Library
 # library resolves its dependencies' newest releases on every run.
 #
 # Soundness and Foundation linking run on the package's swift-tools-version, and Tests on it, Ubuntu
-# noble and linux/arm64 unless the caller widens the platforms. Private dependencies are those a
+# noble and each architecture linux_host_archs lists, which every caller states. Private dependencies are those a
 # passed PACKAGES_TOKEN reads; tests that need them, a Postgres or a Valkey run in tests.yml, since
 # swiftlang's workflow can give none of them.
 on:
@@ -27,7 +27,7 @@ on:
       linux_host_archs:
         type: string
         description: Architectures to test on, x86_64 or aarch64 (JSON list).
-        default: '["aarch64"]'
+        required: true
       enable_linux_static_sdk_build:
         type: boolean
         description: Also build with the static Linux SDK, on swiftlang's versions for it.

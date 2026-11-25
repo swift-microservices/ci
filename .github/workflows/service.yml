@@ -8,7 +8,8 @@ name: Service
 # image and, with openapi_breakage_check_path, OpenAPI breakage. On a push to main: Tests and
 # Foundation linking, then the image published once as :<commit-sha>. Any other run validates the
 # image without publishing it. Soundness, Tests and Foundation linking run on the package's
-# swift-tools-version, the toolchain its Containerfile builds with.
+# swift-tools-version, the toolchain its Containerfile builds with. Tests and the image cover each
+# architecture linux_host_archs lists, which every caller states; several share one published index.
 #
 # Deployment isn't part of it: the service's CI workflow calls a deployment workflow, such as
 # deploy_dokploy.yml, after this one. The caller grants contents: read and packages: write, since a
@@ -28,6 +29,12 @@ on:
         type: string
         description: Containerfile stage to build; empty builds the last one.
         default: ""
+      linux_host_archs:
+        type: string
+        description: >-
+          Architectures the tests run on and the image is built for, x86_64 or aarch64 (JSON list):
+          the ones the deployment's servers run.
+        required: true
       license_header_check_enabled:
         type: boolean
         description: Check every file's license header against .license_header_template.
@@ -102,7 +109,7 @@ jobs:
     with:
       linux_swift_versions: ${{ format('["{0}"]', needs.setup.outputs.swift_version) }}
       linux_os_versions: '["noble"]'
-      linux_host_archs: '["aarch64"]'
+      linux_host_archs: ${{ inputs.linux_host_archs }}
       linux_build_command: swift test --disable-automatic-resolution
       swift_flags: -Xswiftc -warnings-as-errors --explicit-target-dependency-import-check error
       postgres_image: ${{ inputs.postgres_image }}
@@ -164,6 +171,7 @@ jobs:
       executable_product: ${{ inputs.executable_product }}
       image_repository: ${{ inputs.image_repository }}
       containerfile_target: ${{ inputs.containerfile_target }}
+      linux_host_archs: ${{ inputs.linux_host_archs }}
     secrets:
       PACKAGES_TOKEN: ${{ secrets.PACKAGES_TOKEN }}
 
@@ -179,6 +187,7 @@ jobs:
       executable_product: ${{ inputs.executable_product }}
       image_repository: ${{ inputs.image_repository }}
       containerfile_target: ${{ inputs.containerfile_target }}
+      linux_host_archs: ${{ inputs.linux_host_archs }}
       publish: true
     secrets:
       PACKAGES_TOKEN: ${{ secrets.PACKAGES_TOKEN }}

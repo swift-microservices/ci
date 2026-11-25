@@ -24,7 +24,7 @@ on:
       linux_host_archs:
         type: string
         description: Host architectures, x86_64 or aarch64 (JSON list).
-        default: '["aarch64"]'
+        required: true
       linux_pre_build_command:
         type: string
         description: Command to run before the build command.
