@@ -120,6 +120,11 @@ specific to these workflows. Read it before adding or changing one.
   which `cleanup_images.yml` deletes. The `Build and validate image` job aggregates the
   matrix and fails unless every architecture passed, so callers require one check whatever the list.
   `attest_image.yml` attests the provenance to the tagged digest and an SBOM to each platform's.
+  The image is not started in CI; staging is where a release first runs. Every build keeps the
+  image's SPDX SBOM as a workflow artifact (`anchore/sbom-action`) and scans it with
+  `anchore/scan-action`. A pull request's build fails only on a critical vulnerability with a
+  fixed version; publishing reports one without failing, since the scanner's database changes
+  after the pull request passed and a deploy or a hotfix mustn't wait on it.
 - **Image names and metadata.** `image_repository` defaults to `ghcr.io/<owner>/<repository>`,
   lowercased, in every workflow that takes it, and `cleanup_images.yml`'s `package_name` to the
   repository's name, lowercased, so the package has the repository's name. An image reference is
@@ -136,11 +141,6 @@ specific to these workflows. Read it before adding or changing one.
   only what it needs: `packages: write` where it pushes or deletes, `packages: read` where it only
   reads. Cleanup deletes with the admin role the repository whose workflow published a package
   holds on it.
-  The image is not started in CI; staging is where a release first runs. Every build keeps the
-  image's SPDX SBOM as a workflow artifact (`anchore/sbom-action`) and scans it with
-  `anchore/scan-action`. A pull request's build fails only on a critical vulnerability with a
-  fixed version; publishing reports one without failing, since the scanner's database changes
-  after the pull request passed and a deploy or a hotfix mustn't wait on it.
 - **Private packages.** `PACKAGES_TOKEN` reads the private repositories a package depends on.
   `tests.yml` and `foundation_linking.yml` write it to `~/.netrc` when it's given; `build_image.yml`
   passes it as the `netrc` build secret, which the Containerfile mounts for `swift package resolve`
