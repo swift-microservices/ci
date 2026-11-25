@@ -3,12 +3,11 @@
 ## SPDX-License-Identifier: MIT
 ## See LICENSE for license information.
 
-# Fails when a library product, or a named executable product, links Foundation's full library or ICU.
-# Runs from the package's root, in a container with the Swift toolchain.
+# Fails when a product of the package, library or executable, links Foundation's full library or
+# ICU. Runs from the package's root, in a container with the Swift toolchain.
 #
 # Environment:
 # - EXCLUDED_PRODUCTS: products that still link Foundation through a dependency, not checked (space-separated).
-# - EXECUTABLE_PRODUCTS: executable products to check besides the library products (space-separated).
 
 set -euo pipefail
 
@@ -33,9 +32,13 @@ package_path=$(pwd)
 # A path dependency's identity is its directory's name, lowercased.
 package_identity=$(basename "$package_path" | tr '[:upper:]' '[:lower:]')
 tools_version=$(swift package tools-version)
-all_products=$(swift package describe --type json | jq -r '.products[] | select(.type | has("library")) | .name')
-if [ -z "$all_products" ] && [ -z "$EXECUTABLE_PRODUCTS" ]; then
-  echo '::error::The package has no library products, and executable_products names none'
+description=$(swift package describe --type json)
+all_products=$(jq -r '.products[] | select((.type | type) == "object" and (.type | has("library"))) | .name' \
+  <<<"$description")
+all_executables=$(jq -r '.products[] | select((.type | type) == "object" and (.type | has("executable"))) | .name' \
+  <<<"$description")
+if [ -z "$all_products" ] && [ -z "$all_executables" ]; then
+  echo '::error::The package declares no library or executable product to check'
   exit 1
 fi
 
@@ -57,14 +60,13 @@ while read -r product; do
 done <<<"$all_products"
 products=${products%$'\n'}
 executables=()
-read -r -a requested_executables <<<"$EXECUTABLE_PRODUCTS"
-for product in "${requested_executables[@]}"; do
-  if ! is_excluded "$product"; then
+while read -r product; do
+  if [ -n "$product" ] && ! is_excluded "$product"; then
     executables+=("$product")
   fi
-done
+done <<<"$all_executables"
 for product in "${excluded[@]}"; do
-  echo "::notice::$product isn't checked: excluded_products names it as linking Foundation through a dependency"
+  echo "::notice::$product isn't checked: it's listed as linking Foundation through a dependency"
 done
 if [ -z "$products" ] && [ "${#executables[@]}" -eq 0 ]; then
   echo 'Nothing to check: every product is excluded'

@@ -4,25 +4,19 @@
 
 name: PR label
 
-permissions:
-  contents: read
-  pull-requests: read
-
-# This repository's own label check, and the one a library calls from its pull_request_label.yml.
+# Exactly one semver label on a pull request: this repository's own check, and the one a library
+# calls from its pull_request_label.yml. The job that calls it grants contents: read and
+# pull-requests: read.
 on:
   pull_request:
     types: [labeled, unlabeled, opened, reopened, synchronize]
   workflow_call:
 
+permissions:
+  contents: read
+  pull-requests: read
+
 jobs:
   semver-label-check:
-    name: Semantic version label check
-    runs-on: ubuntu-latest
-    timeout-minutes: 1
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
-        with:
-          persist-credentials: false
-      - name: Check for Semantic Version label
-        uses: apple/swift-nio/.github/actions/pull_request_semver_label_checker@2f58d8ef84438d6517fc78bcea2f8527e3c72936  # 2.105.0
+    name: Semver label
+    uses: swiftlang/github-workflows/.github/workflows/pull_request_label.yml@e8b910942e79fb2c0654a87804d8f16e2304285c  # 0.0.19

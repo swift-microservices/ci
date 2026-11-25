@@ -1,0 +1,84 @@
+# Copyright (c) 2026 Zaid Rahhawi
+# SPDX-License-Identifier: MIT
+# See LICENSE for license information.
+
+name: Publish image
+
+# Tags the images build_image.yml pushed by digest in this run, with push: true, once as
+# <image_repository>:<commit-sha>: one architecture's image keeps its own manifest, several share
+# an index that carries the repository's metadata as annotations. Only from the default branch, and
+# never twice, so a re-run never replaces the image an environment ran. Its `image` output names
+# the result by digest, for a deployment or an attestation.
+#
+# Permissions are inherited: callers grant contents: read and packages: write.
+on:
+  workflow_call:
+    inputs:
+      image_repository:
+        type: string
+        description: Where build_image.yml pushed the images, its image_repository.
+        default: ""
+    secrets:
+      REGISTRY_USERNAME:
+        description: Username for a registry other than ghcr.io; ghcr.io takes GITHUB_TOKEN.
+        required: false
+      REGISTRY_PASSWORD:
+        description: Password or token for a registry other than ghcr.io.
+        required: false
+    outputs:
+      image:
+        description: The published image, <image_repository>:<commit-sha>@sha256:<hex>.
+        value: ${{ jobs.publish.outputs.image }}
+
+jobs:
+  publish:
+    name: Publish image
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    outputs:
+      image: ${{ steps.publish.outputs.image }}
+    steps:
+      - name: Find this repository's scripts
+        id: scripts
+        uses: $/.github/actions/scripts
+      - name: Find the image repository
+        id: repository
+        env:
+          IMAGE_REPOSITORY: ${{ inputs.image_repository }}
+          LOGIN: true
+          REGISTRY_CREDENTIALS: ${{ secrets.REGISTRY_PASSWORD != '' }}
+          SCRIPTS: ${{ steps.scripts.outputs.directory }}
+        run: bash "$SCRIPTS/image-repository.sh"
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069  # v4.4.1
+      - name: Log in to the registry
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550  # v4.8.0
+        with:
+          registry: ${{ steps.repository.outputs.registry }}
+          username: ${{ secrets.REGISTRY_USERNAME || github.actor }}
+          password: ${{ secrets.REGISTRY_PASSWORD || secrets.GITHUB_TOKEN }}
+      - name: Download the pushed digests
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
+        with:
+          pattern: image-digest-${{ github.sha }}-*
+          path: ${{ runner.temp }}/digests
+          merge-multiple: true
+      # The platform images' labels again, as annotations on the index several architectures share,
+      # where GHCR reads a multi-architecture image's.
+      - name: Read the index's annotations
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302  # v6.2.0
+        env:
+          DOCKER_METADATA_ANNOTATIONS_LEVELS: index
+        with:
+          images: ${{ steps.repository.outputs.image_repository }}
+          tags: type=sha,format=long,prefix=
+      - name: Publish the image
+        id: publish
+        env:
+          DIGESTS_DIRECTORY: ${{ runner.temp }}/digests
+          IMAGE_REPOSITORY: ${{ steps.repository.outputs.image_repository }}
+          ANNOTATIONS: ${{ steps.meta.outputs.annotations }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          SCRIPTS: ${{ steps.scripts.outputs.directory }}
+        run: bash "$SCRIPTS/publish-image.sh"

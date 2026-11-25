@@ -3,12 +3,12 @@
 ## SPDX-License-Identifier: MIT
 ## See LICENSE for license information.
 
-# Writes the image the checks run on as the step's `image` output: the local build on a pull
-# request, or, when publishing, the pushed image by digest, pulled so the checks see exactly what
-# the commit's tag will name.
+# Writes the image the checks run on as the step's `image` output: the local build, or, when the
+# build pushed it, the pushed image by digest, pulled so the checks see exactly what the commit's
+# tag will name.
 #
 # Environment:
-# - PUBLISH: true when the build pushed the image by digest.
+# - PUSH: true when the build pushed the image by digest.
 # - LOCAL_IMAGE: the locally loaded image of a build that didn't push.
 # - IMAGE_REPOSITORY: where a pushed image is.
 # - DIGEST: the pushed image's digest, sha256:<hex>.
@@ -16,7 +16,7 @@
 
 set -euo pipefail
 
-if [ "$PUBLISH" != true ]; then
+if [ "$PUSH" != true ]; then
   echo "image=$LOCAL_IMAGE" >> "$GITHUB_OUTPUT"
   exit 0
 fi

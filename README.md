@@ -1,96 +1,62 @@
 # ci
 
-The GitHub Actions CI and delivery of every Swift library and service built the
-[swift-microservices-architect](https://github.com/swift-microservices/swift-microservices-architect-skill)
-way. A repository's CI workflows call these workflows and nothing else; they route to
-[swiftlang/github-workflows](https://github.com/swiftlang/github-workflows) and Apple's workflows,
-so no repository pins those. A change made here reaches every repository through the pin Dependabot
-moves.
+Reusable GitHub Actions workflows that test, publish and deploy Swift packages: libraries, and
+services that ship as a container image. A repository's workflows call these and nothing else; they
+build on [swiftlang/github-workflows](https://github.com/swiftlang/github-workflows), so a new Swift
+release, check or flag reaches every repository through the one pin Dependabot moves.
+
+Every default is the common case, so a repository passes only what is its own: the architectures
+its servers run, the databases its tests need, the applications it deploys to.
 
 ## Workflows
 
-| Workflow | A repository calls it from | Runs |
+| Workflow | Called from | Does |
 | --- | --- | --- |
-| `library.yml` | `ci.yml` | Pull request: Soundness, Tests, Foundation linking, and Protobuf when `buf.yaml` is at the root. Push or schedule: Tests, Foundation linking |
-| `service.yml` | `ci.yml` | Pull request: Soundness, Tests, Foundation linking, Build image, and OpenAPI breakage with `openapi_breakage_check_path`. Push to `main`: Tests and Foundation linking, then Publish image as `:<commit-sha>` |
-| `deploy_dokploy.yml` | `ci.yml` (staging) and `deploy.yml` (production) | A commit's image on Dokploy, one application after another, each running or, when it runs to completion, exited 0 before the next; production only for a commit staging ran |
-| `attest_image.yml` | `ci.yml`, where GitHub stores attestations: a public repository, or a private one on GitHub Enterprise Cloud | Signs the build provenance of a commit's published image, and an SBOM of each platform's image, and pushes the attestations beside them, so they last as long as the image |
-| `cleanup_images.yml` | `cleanup_images.yml` | Keeps the newest commits' images of a container package (30 by default), each with its platform images and attestations, and deletes untagged uploads older than a day |
-| `pull_request_label.yml` | `pull_request_label.yml` | Exactly one semver label on a library's pull request |
-| `release.yml` | `release.yml` | A library's next minor or patch release, from the merged pull requests' labels; a major release is created by hand |
+| `library.yml` | `pull_request.yml`, `main.yml` | A library's CI: Soundness, Tests, Platforms, Foundation linking, Protobuf |
+| `service.yml` | `pull_request.yml`, `main.yml` | A service's CI: Soundness, Tests, Foundation linking, OpenAPI breakage, Image; on `main`, publishes the image |
+| `deploy_dokploy.yml` | `main.yml`, `deploy.yml` | Deploys an image to an environment's Dokploy applications |
+| `attest_image.yml` | `main.yml` | Signs a published image's build provenance and SBOMs |
+| `cleanup_images.yml` | `cleanup_images.yml` | Keeps the newest commits' images on GHCR and deletes the rest |
+| `pull_request_label.yml` | `pull_request_label.yml` | Requires a semver label on a library's pull request |
+| `release.yml` | `release.yml` | Releases a library's next minor or patch version from the merged pull requests' labels |
 
-`library.yml` and `service.yml` are the CI pipelines. They call the building blocks below, which a
-repository with an unusual need can call too:
+The pipelines are built from these, which a repository with an unusual need can call too:
 
-| Workflow | Does |
+| Building block | Does |
 | --- | --- |
-| `tests.yml` | swiftlang's `swift_package_test.yml` Linux job, with its input names and formats plus `postgres_image` and `valkey_image`, for a package that needs private dependencies, a Postgres or a Valkey, which swiftlang's workflow can't give |
-| `foundation_linking.yml` | Builds an empty executable that links every library product, and each executable product `executable_products` names, and fails when one links Foundation's full library or ICU; `excluded_products` names the products it skips |
-| `build_image.yml` | Builds the `Containerfile` once for each architecture `linux_host_archs` lists, each on a runner of its own, and checks it runs as an unprivileged user and links every runtime library; keeps its SBOM as an artifact and, on a pull request, fails on a critical vulnerability that has a fix; labels each image with the repository's OCI metadata; with `publish: true` on `main`, pushes each image by digest, runs the checks on the pushed image, reports such a vulnerability without failing, and tags the commit once as `:<commit-sha>` when every architecture passed, on an index annotated with the same metadata when there are several |
+| `tests.yml` | swiftlang's Linux tests with private dependencies, Postgres and Valkey, which swiftlang's own can't give |
+| `foundation_linking.yml` | Fails when a product links Foundation's full library or ICU |
+| `build_image.yml` | Builds, checks and scans the image for each architecture; optionally pushes each by digest |
+| `publish_image.yml` | Tags the pushed images once as `:<commit-sha>` |
 
-### Deployment adapters
-
-`service.yml` ends at a published image; deploying it is a separate workflow the service's CI
-workflow calls, so the pipeline doesn't depend on a platform. `deploy_dokploy.yml` is the one
-adapter; another platform adds `deploy_<platform>.yml` with the same inputs where they apply
-(`environment`, `commit`, `image_repository`) and the same job name,
-`Deploy <environment>`, which the production gate looks for.
-
-## What the pipelines hold every repository to
-
-- `main` changes only through pull requests that passed their checks, so a push to `main` skips
-  Soundness and reruns the tests on the merged commit.
-- The toolchain is the package's `swift-tools-version`: a pipeline reads it, so Soundness, tests,
-  Foundation linking and the Containerfile's `swift:<tools version>-noble` can't drift apart. A
-  library others build with widens `linux_swift_versions`, `linux_host_archs` and
-  `enable_linux_static_sdk_build`.
-- Every package states the architectures it tests on in `linux_host_archs`, which has no default:
-  a service the ones its servers run, which its image is built for too, and a system library the
-  same as its services. With several, each builds on its own runner, and the commit's one tag
-  names an index of them, from which Docker pulls each host's own; one keeps a plain image. Every
-  caller requires the same `Build and validate image` check whatever the list.
-- Passing `PACKAGES_TOKEN` is what marks private dependencies; there's no other input for them.
-- A service's image is `ghcr.io/<owner>/<repository>`, lowercased, so its package on GHCR has the
-  repository's name and every workflow that takes `image_repository` finds it without one. An image
-  reference is lowercase while a GitHub owner or repository may not be, so an `image_repository`
-  with a capital fails before anything is built. Each image carries the OCI labels GHCR shows,
-  read from the repository: `org.opencontainers.image.source`, its URL, `.description`,
-  `.licenses` and `.revision`, the commit. An index of several architectures carries them as
-  annotations too, where GHCR reads a multi-architecture image's.
-- `GITHUB_TOKEN` publishes, attests, deploys and cleans up, and each job is granted only what it
-  needs, `packages: write` only where it pushes or deletes; no personal access token reaches the
-  registry.
-- The tests pass `-warnings-as-errors` and `--explicit-target-dependency-import-check error`, and a
-  library also `-require-explicit-sendable`, which checks `public` declarations. Nightlies drop
-  `-warnings-as-errors`. The image build passes none of them, so a warning a newer toolchain adds
-  never blocks a deploy or a hotfix. For the same reason, a critical vulnerability with a fix fails
-  a pull request's image but not the publish on `main`.
-- Foundation linking always runs. `foundation_linking_check_excluded_products` names the products
-  that still link Foundation through a dependency; removing one checks it again.
-- A package of `.proto` files declares `buf.yaml` at its root, listing each module and the lint
-  and breaking rules; the pipeline reads it, so there's no input for it. On a pull request, buf
-  lints the files and compares them with the base commit, since the Swift API breakage check can't
-  see a renumbered field or a reused tag.
-- A service that serves an OpenAPI document, such as a gateway, names it in
-  `openapi_breakage_check_path`. On a pull request, oasdiff compares it with the base commit and
-  fails on a change it rates `ERR`, a definite break for a client of the previous document, such as
-  a removed operation or a parameter made required; a `WARN` shows as an annotation. A
-  `.oasdiff.yaml` at the repository's root can ignore a break the service means to make, or raise a
-  check's level. The document never leaves CI, and nothing is commented.
-- Production runs only a commit whose push to `main` deployed it to staging. Rolling back means
-  deploying an older commit whose image cleanup kept; nothing is rebuilt.
-
-## CI workflows
-
-Pin each call to a release's commit, with the release in a comment. A job that sets `permissions`
-gets only those, so each lists all it needs. A library:
+## A library
 
 ```yaml
-# .github/workflows/ci.yml
-name: CI
+# .github/workflows/pull_request.yml
+name: PR
 
 on:
   pull_request:
+    types: [opened, reopened, synchronize]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  library:
+    name: Library
+    uses: swift-microservices/ci/.github/workflows/library.yml@<commit>  # <release>
+```
+
+```yaml
+# .github/workflows/main.yml
+name: Main
+
+on:
   push:
     branches: [main]
   schedule:
@@ -99,18 +65,10 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: ci-${{ github.event.pull_request.number || github.sha }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
-
 jobs:
-  ci:
-    name: CI
+  library:
+    name: Library
     uses: swift-microservices/ci/.github/workflows/library.yml@<commit>  # <release>
-    with:
-      linux_host_archs: '["aarch64"]'  # the architectures its services run
-      api_breakage_check_enabled: true  # from the library's 1.0.0
-      foundation_linking_check_excluded_products: '["<Org>Persistence"]'
 ```
 
 ```yaml
@@ -153,90 +111,112 @@ jobs:
     uses: swift-microservices/ci/.github/workflows/release.yml@<commit>  # <release>
 ```
 
-A library others build with tests more platforms:
+`pull_request.yml` and `main.yml` pass the same inputs, such as a library whose tests need Postgres:
 
 ```yaml
     with:
-      linux_swift_versions: '["<tools version>", …, "nightly-main", "nightly-<next>.x"]'
-      linux_host_archs: '["x86_64", "aarch64"]'
-      enable_linux_static_sdk_build: true
+      postgres_image: postgres:18-alpine
+      foundation_linking_check_excluded_products: '["PersistencePostgres"]'
 ```
 
-A service; its staging job deploys each push to `main`:
+## A service
 
 ```yaml
-# .github/workflows/ci.yml
-name: CI
+# .github/workflows/pull_request.yml
+name: PR
 
 on:
   pull_request:
+    types: [opened, reopened, synchronize]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  service:
+    name: Service
+    uses: swift-microservices/ci/.github/workflows/service.yml@<commit>  # <release>
+    with:
+      linux_host_archs: '["aarch64"]'
+      postgres_image: postgres:18-alpine
+    secrets:
+      PACKAGES_TOKEN: ${{ secrets.PACKAGES_TOKEN }}
+```
+
+```yaml
+# .github/workflows/main.yml
+name: Main
+
+on:
   push:
     branches: [main]
 
 permissions:
   contents: read
 
+# One push at a time reaches staging, in order.
 concurrency:
-  group: ci-${{ github.event.pull_request.number || github.sha }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
 
 jobs:
-  ci:
-    name: CI
+  service:
+    name: Service
     permissions:
       contents: read
       packages: write
     uses: swift-microservices/ci/.github/workflows/service.yml@<commit>  # <release>
     with:
-      executable_product: orders
-      linux_host_archs: '["aarch64"]'  # the architectures the servers run
-      postgres_image: postgres:<major>-alpine
-      valkey_image: valkey/valkey:<major>-alpine  # only with Valkey tests
-      openapi_breakage_check_path: Sources/<Target>/openapi.yaml  # only with an OpenAPI document
+      linux_host_archs: '["aarch64"]'
+      postgres_image: postgres:18-alpine
     secrets:
       PACKAGES_TOKEN: ${{ secrets.PACKAGES_TOKEN }}
 
   staging:
     name: Staging
-    needs: [ci]
-    if: github.event_name == 'push'
+    needs: [service]
     permissions:
       contents: read
-      actions: read
-      packages: read
+      deployments: write
     uses: swift-microservices/ci/.github/workflows/deploy_dokploy.yml@<commit>  # <release>
     with:
       environment: staging
-      application_ids: '["<staging migrate id>", "<staging serve id>", "<staging worker id>"]'
-      run_to_completion_application_ids: '["<staging migrate id>"]'
+      image: ${{ needs.service.outputs.image }}
+      application_ids: '["<migrate id>", "<serve id>", "<worker id>"]'
+      run_to_completion_application_ids: '["<migrate id>"]'
     secrets:
       DOKPLOY_URL: ${{ secrets.DOKPLOY_URL }}
       DOKPLOY_TOKEN: ${{ secrets.DOKPLOY_TOKEN }}
 
-  # Signed build provenance and SBOM for each published image, in a public repository or one on
-  # GitHub Enterprise Cloud; `gh attestation verify oci://<image> --owner <owner>` checks them.
+  # Only where GitHub stores attestations: a public repository, or a private one on GitHub
+  # Enterprise Cloud. `gh attestation verify oci://<image> --owner <owner>` checks them.
   attest:
     name: Attest
-    needs: [ci]
-    if: github.event_name == 'push'
+    needs: [service]
     permissions:
       contents: read
       packages: write
       id-token: write
       attestations: write
     uses: swift-microservices/ci/.github/workflows/attest_image.yml@<commit>  # <release>
+    with:
+      image: ${{ needs.service.outputs.image }}
 ```
 
 ```yaml
 # .github/workflows/deploy.yml
-name: Deploy to production
-run-name: Deploy ${{ inputs.commit || 'latest main' }} to production
+name: Deploy
+run-name: Deploy ${{ inputs.commit || 'what staging runs' }} to production
 
 on:
   workflow_dispatch:
     inputs:
       commit:
-        description: Commit to deploy (default the latest on main); an older one rolls back
+        description: Commit to deploy, by default the one staging runs; an older one rolls back
         type: string
         required: false
 
@@ -249,14 +229,14 @@ jobs:
     if: github.ref == 'refs/heads/main'
     permissions:
       contents: read
-      actions: read
-      packages: read
+      deployments: write
     uses: swift-microservices/ci/.github/workflows/deploy_dokploy.yml@<commit>  # <release>
     with:
       environment: production
+      promote_from: staging
       commit: ${{ inputs.commit }}
-      application_ids: '["<production migrate id>", "<production serve id>", "<production worker id>"]'
-      run_to_completion_application_ids: '["<production migrate id>"]'
+      application_ids: '["<migrate id>", "<serve id>", "<worker id>"]'
+      run_to_completion_application_ids: '["<migrate id>"]'
     secrets:
       DOKPLOY_URL: ${{ secrets.DOKPLOY_URL }}
       DOKPLOY_TOKEN: ${{ secrets.DOKPLOY_TOKEN }}
@@ -282,56 +262,223 @@ jobs:
     uses: swift-microservices/ci/.github/workflows/cleanup_images.yml@<commit>  # <release>
 ```
 
-Each workflow that takes `image_repository` defaults it to `ghcr.io/<owner>/<repository>`,
-lowercased, and `cleanup_images.yml`'s `package_name` to the repository's name, lowercased. A
-service whose image has another name passes the same `image_repository` to every one of them, and
-the name after the owner as `package_name`.
+Pin each call to a release's full commit, with the release in a comment; Dependabot moves the
+pins. A job that sets `permissions` gets only those, so each lists all it needs.
 
-To put an older commit back on staging, re-run the Staging job of that commit's CI run.
+## Libraries and services test differently
+
+| | Library | Service |
+| --- | --- | --- |
+| Swift versions | Each supported release from the package's `swift-tools-version` up, `nightly-release` and `nightly-main` | The package's `swift-tools-version`, the toolchain its `Containerfile` builds with |
+| Architectures | `x86_64` and `aarch64` | The ones its servers run, which it states in `linux_host_archs` |
+| Other platforms | The Static Linux SDK; Wasm, Android and Windows when enabled | None |
+| Flags | `-warnings-as-errors`, `--explicit-target-dependency-import-check error` and `-require-explicit-sendable`; nightlies drop `-warnings-as-errors` | `-warnings-as-errors` and `--explicit-target-dependency-import-check error` |
+
+A library runs wherever its users build, on toolchains and machines it doesn't choose, so its CI
+covers them: a new release's diagnostics, a nightly's changes, and the differences between
+architectures, such as aarch64's weaker memory ordering, which surfaces races x86_64 hides, a C
+target's `char`, unsigned on aarch64 Linux, and code behind `#if arch`. A service ships one binary
+to servers it knows, so it tests
+exactly what it ships: its toolchain, on its servers' architectures, which its image is built for
+too. Another architecture or toolchain would cost runners and test nothing that runs. A library
+that only a project's own services use may narrow its matrix to theirs.
+
+## What the pipelines run
+
+| Job | Library | Service |
+| --- | --- | --- |
+| Soundness | Pull requests | Pull requests |
+| Tests | Every run | Every run |
+| Platforms | Every run, when one is enabled | |
+| Foundation linking | Every run | Every run |
+| Protobuf | Pull requests, when `buf.yaml` is at the root | |
+| OpenAPI breakage | | Pull requests, with `openapi_breakage_check_path` |
+| Image | | Every run; pushed by digest on `main` |
+| Publish | | `main`, once Tests, Foundation linking and Image passed |
+| Passed | Every run | Every run |
+
+- **Passed** fails when any other job failed, so a repository's ruleset requires `Library / Passed`
+  or `Service / Passed`, whatever its matrix, plus a library's `PR label / Semver label / Semantic
+  version label check`.
+- **Soundness** is swiftlang's: formatting, license headers, documentation, API breakage,
+  unacceptable language, YAML, shell and broken symlinks, on the package's `swift-tools-version`.
+  A service checks no documentation or API breakage, since nothing builds against it.
+- **Tests** run in each toolchain's Swift image, on a runner of each architecture, so nothing runs
+  under emulation. The toolchains are swiftlang's `toolchain_matrix.yml`'s, so `current` and
+  `nightly-release` follow the swiftlang release this repository pins, and versions below the
+  package's `swift-tools-version` are left out.
+- **Platforms** are swiftlang's `package_test.yml`, which can't read private dependencies.
+- **Foundation linking** builds every product, library and executable, and fails when one links
+  `libFoundation`, `libFoundationInternationalization` or `lib_FoundationICU`, so code that imports
+  `FoundationEssentials` keeps its binaries small. A product that links Foundation through a
+  dependency is listed in `foundation_linking_check_excluded_products` until it doesn't.
+- **Protobuf** runs buf's lint and breaking checks against the pull request's base, since the Swift
+  API breakage check can't see a renumbered field or a reused tag. `buf.yaml` lists the modules and
+  rules.
+- **OpenAPI breakage** runs oasdiff against the pull request's base and fails on a change it rates
+  `ERR`, such as a removed operation or a parameter made required; a `WARN` shows as an
+  annotation, and a `.oasdiff.yaml` at the root can ignore a break the service means to make. The
+  document never leaves CI, and nothing is commented.
+- **Image** builds the `Containerfile` once per architecture and checks it: it runs as an
+  unprivileged user, and the executable its entrypoint starts finds every runtime library it
+  links. A static executable links none, and an image without `ldd` or whose entrypoint is a script
+  has its libraries left unchecked, with a warning. Each image's SPDX SBOM is kept with the run
+  and scanned; a critical vulnerability with a fixed version fails a pull request, while `main`
+  reports it, so a vulnerability disclosed after a pull request passed never blocks a deploy or a
+  hotfix. The build passes none of the tests' flags, for the same reason.
+- **Publish** tags the images pushed by digest once as `<image_repository>:<commit-sha>`, a single
+  image for one architecture and an index for several, from which each server pulls its own. The
+  image checked is the image published, and a commit's tag is never rewritten.
+
+## Inputs
+
+Lists are JSON lists, written `'["x86_64", "aarch64"]'`, and maps JSON objects, written
+`'{"LOG_LEVEL": "debug"}'`. An input that exists in swiftlang's workflows keeps its name, such as
+`linux_host_archs`, `linux_command` and `enable_windows`; a check's settings are named
+`<check>_check_<setting>`, as in swiftlang's `soundness.yml`.
+
+### `library.yml`
+
+| Input | Default | Description |
+| --- | --- | --- |
+| `linux_swift_versions` | `""` | Swift versions to test on: releases such as `"6.3"`, or `current`, `current-1`, `current-2`, `nightly-release` and `nightly-main`. Empty is `current-2` through `nightly-main` |
+| `linux_host_archs` | `'["x86_64", "aarch64"]'` | Architectures to test on |
+| `linux_os` | `'["noble"]'` | Distributions to test on |
+| `linux_setup_command` | `""` | Run before `linux_command` |
+| `linux_command` | `swift test` | Builds and tests; a package without tests runs `swift build` |
+| `linux_env_vars` | `'{}'` | Variables the tests read |
+| `postgres_image` | `""` | Postgres started beside the tests, such as `postgres:18-alpine`; the tests read `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_USER`, `POSTGRES_PASSWORD` and `POSTGRES_DB` |
+| `valkey_image` | `""` | Valkey started beside the tests, such as `valkey/valkey:9-alpine`; the tests read `VALKEY_HOST` and `VALKEY_PORT` |
+| `enable_linux_static_sdk_build` | `true` | Build with the Static Linux SDK |
+| `enable_wasm_sdk_build` | `false` | Build with the Swift SDK for Wasm |
+| `enable_android_sdk_build` | `false` | Build with the Swift SDK for Android and test on its emulator |
+| `enable_windows` | `false` | Test on Windows |
+| `api_breakage_check_enabled` | `true` | Fail a pull request that breaks the public API; `false` before 1.0 |
+| `docs_check_targets` | `'[]'` | Targets whose documentation must build without warnings; empty reads `.spi.yml`'s `documentation_targets` |
+| `docs_check_container_image` | `""` | Image the documentation builds in; empty is the `swift-tools-version`'s |
+| `format_check_enabled` | `true` | Check formatting against `.swift-format` |
+| `license_header_check_enabled` | `true` | Check license headers against `.license_header_template` |
+| `foundation_linking_check_enabled` | `true` | Run Foundation linking |
+| `foundation_linking_check_excluded_products` | `'[]'` | Products that link Foundation through a dependency |
+
+Secrets: `PACKAGES_TOKEN`.
+
+### `service.yml`
+
+| Input | Default | Description |
+| --- | --- | --- |
+| `linux_host_archs` | Required | Architectures the servers run: the tests run on each, and the image is built for each |
+| `linux_setup_command` | `""` | Run before `linux_command` |
+| `linux_command` | `swift test --disable-automatic-resolution` | Builds and tests at the committed `Package.resolved` |
+| `linux_env_vars` | `'{}'` | Variables the tests read |
+| `postgres_image` | `""` | As `library.yml`'s |
+| `valkey_image` | `""` | As `library.yml`'s |
+| `format_check_enabled` | `true` | Check formatting against `.swift-format` |
+| `license_header_check_enabled` | `true` | Check license headers against `.license_header_template` |
+| `foundation_linking_check_enabled` | `true` | Run Foundation linking |
+| `foundation_linking_check_excluded_products` | `'[]'` | Products that link Foundation through a dependency, such as an executable whose generated OpenAPI code does |
+| `openapi_breakage_check_path` | `""` | The OpenAPI document the service serves, such as `Sources/<Target>/openapi.yaml`; empty checks none |
+| `image_repository` | `""` | Where the image is published; empty is `ghcr.io/<owner>/<repository>`, lowercased |
+| `containerfile` | `Containerfile` | The Containerfile or Dockerfile |
+| `containerfile_target` | `""` | The stage to build; empty builds the last |
+
+Secrets: `PACKAGES_TOKEN`, and `REGISTRY_USERNAME` and `REGISTRY_PASSWORD` for a registry other
+than GHCR. Output: `image`, the published `<image_repository>:<commit-sha>@sha256:<hex>`, empty
+except on `main`.
+
+### `deploy_dokploy.yml`
+
+| Input | Default | Description |
+| --- | --- | --- |
+| `environment` | Required | The GitHub environment, such as `staging` or `production` |
+| `environment_url` | `""` | Where the environment serves, shown on its deployments |
+| `image` | `""` | The image to deploy by digest, such as `service.yml`'s output |
+| `promote_from` | `""` | Instead of `image`: the environment whose image to deploy |
+| `commit` | `""` | With `promote_from`, the commit to deploy; empty is the newest `promote_from` ran. An older one rolls back |
+| `application_ids` | Required | The environment's Dokploy applications, in deploy order |
+| `run_to_completion_application_ids` | `'[]'` | Those whose command exits, such as a migration |
+
+Secrets: `DOKPLOY_URL` and `DOKPLOY_TOKEN`.
+
+### The others
+
+- `attest_image.yml` takes `image`, the published image by digest, and the registry secrets.
+- `cleanup_images.yml` takes `package_name`, empty for the repository's name, lowercased, and
+  `min_versions_to_keep`, 30 by default: the newest commits' images it keeps, each with its
+  platform images and attestations. It deletes untagged uploads older than a day too.
+
+## Deployments
+
+`service.yml` ends at a published image; deploying it is a workflow of its own, so a pipeline
+depends on no platform.
+
+- **Environments.** A deployment runs in a GitHub environment, so the environment's protection
+  rules apply, such as production's required reviewers and its deployment branches, and its secrets
+  take precedence over the repository's, so staging and production can hold different keys.
+- **Records.** Each run records a GitHub deployment of the commit to the environment, with the
+  image it ran, in progress and then succeeded or failed. The repository's Environments page shows
+  what each environment runs.
+- **Promotion.** `promote_from: staging` deploys the image staging's newest successful deployment
+  of the commit ran, so production runs only what staging ran, and fails for a commit staging never
+  ran or is still deploying. Naming an older commit is the rollback; nothing is rebuilt, and the
+  image must still be kept by cleanup. To put an older commit back on staging, re-run that commit's
+  Staging job.
+- **Order.** One deployment at a time per environment, never cancelled midway.
+
+Another platform adds `deploy_<platform>.yml` that takes `environment`, `environment_url`, `image`,
+`promote_from` and `commit` with these meanings, runs its job in the environment, wraps its own
+deploy between `start-deployment.sh` and `finish-deployment.sh`, and adds the inputs and secrets the
+platform needs. Since every platform records deployments the same way, one environment can promote
+from another on a different platform.
 
 ## Requirements
 
-- **GitHub Container Registry**: the first push from the service's workflow creates the package,
-  linked to the repository by `GITHUB_TOKEN` and by the `org.opencontainers.image.source` label, so
-  it inherits the repository's access permissions and its workflows hold the admin role cleanup
-  deletes with. A package of that name that already exists, such as one pushed from a laptop,
-  refuses `GITHUB_TOKEN` until its settings connect it to the repository and give the repository
-  Actions access with the admin role.
-- **Secrets**, as repository secrets:
-  - `PACKAGES_TOKEN`, only with private dependencies: a fine-grained token whose resource owner is
-    the organization, limited to the private package repositories, with Contents read-only. It's a
-    Dependabot secret too, since a Dependabot pull request reads only those.
-  - `DOKPLOY_URL` and `DOKPLOY_TOKEN`, for a service: Dokploy's URL and an API key that can read,
-    update, and deploy the applications, and read their containers.
-- **Containerfile**, only with private dependencies: resolve with the secret mounted, so the token
-  never enters a layer:
+- **Rulesets.** `main` changes only through pull requests that pass `Library / Passed` or
+  `Service / Passed`, and a library's label check.
+- **Registry.** GHCR needs nothing: `GITHUB_TOKEN` pushes, and the first push creates the package,
+  linked to the repository by the `org.opencontainers.image.source` label, so it inherits the
+  repository's access and its workflows hold the admin role cleanup deletes with. A package of that
+  name that already exists, such as one pushed from a laptop, refuses `GITHUB_TOKEN` until its
+  settings connect it to the repository with the admin role. Another registry takes its own
+  `image_repository` and the `REGISTRY_USERNAME` and `REGISTRY_PASSWORD` secrets; its own
+  retention rules replace `cleanup_images.yml`.
+- **Secrets.** `PACKAGES_TOKEN`, only with private dependencies: a fine-grained token owned by the
+  organization, limited to the private package repositories, with Contents read-only, stored as an
+  Actions secret and as a Dependabot secret. `DOKPLOY_URL` and `DOKPLOY_TOKEN`, for a service on
+  Dokploy, as repository or environment secrets.
+- **Containerfile.** It builds on the package's `swift-tools-version`, runs as an unprivileged
+  `USER`, and starts the service's executable as its entrypoint. With private dependencies, it
+  resolves with the secret mounted, so the token never enters a layer, and a local build passes
+  `--secret id=netrc,src=$HOME/.netrc`:
 
   ```dockerfile
   RUN --mount=type=secret,id=netrc,target=/root/.netrc swift package --disable-automatic-resolution resolve
   ```
 
-  A local build passes `--secret id=netrc,src=$HOME/.netrc`.
-- **Dokploy**: each application uses the Docker provider with the registry's credentials and
-  auto-deploy off, so only these workflows change what runs. List the application that applies
-  migrations first in `application_ids`. Each application waits for the one before it: for a
-  container of the new image to run, and to pass its health check when Dokploy gives it one, or,
-  for an application `run_to_completion_application_ids` lists, such as a one-shot migration, for
-  its new container to exit 0. Any other exit fails the run, as does none within 10 minutes. Such
-  an application needs two Swarm settings in Dokploy: a restart policy whose condition is `none`,
-  since Swarm restarts an exited container under `any`, the default, and an update config whose
-  failure action is `continue`, since Swarm counts a task that exits within an update's monitor
-  period as failed and the default config rolls the update back. `deploy_dokploy.yml` checks the
-  key's access to the containers and these settings before it deploys anything.
+- **Environments.** `staging` and `production` exist in the repository's settings, with
+  production's required reviewers and its `main` deployment branch, where the plan has them.
+- **Dokploy.** Each application uses the Docker provider with the registry's credentials and
+  auto-deploy off, so only these workflows change what runs. The application that applies
+  migrations comes first in `application_ids`. Each application waits for the one before it: for a
+  container of the new image to run, and to pass its health check when it has one, or, for one
+  `run_to_completion_application_ids` lists, for its new container to exit 0. Any other exit fails
+  the deployment, as does none within 10 minutes. Such an application needs a restart policy whose
+  condition is `none`, since Swarm restarts an exited container under `any`, and an update config
+  whose failure action is `continue`, since Swarm rolls back an update whose task exits within its
+  monitor period. The key must read the applications' containers. `deploy_dokploy.yml` checks all
+  of this before it changes anything. Docker's `ps` and `inspect` see only the containers on the
+  application's server, so a Swarm that spreads an application across nodes runs one on the server
+  Dokploy deploys from.
 - **Migrations** are expand/contract: the previous image must run on the current schema, because a
   rollback redeploys it.
 
 ## Versioning
 
-The workflow file names, their inputs and secrets, and the `Deploy <environment>` job name are this
-repository's API. Renaming or removing one is a major release, after a release that keeps the old
-name as a deprecated alias. Changing what a pipeline checks or builds with, such as its toolchain or
-a flag, is a minor release: each repository adopts it through its own Dependabot pull request,
-whose CI shows what it breaks.
+The workflow file names, their inputs, secrets and outputs, and the `Passed` job are this
+repository's API: renaming or removing one is a major release, whose notes say how to move.
+Changing what a pipeline checks or builds with, such as a toolchain or a flag, is a minor release,
+which each repository adopts through its own Dependabot pull request, whose CI shows what it
+breaks.
 
 ## License
 
